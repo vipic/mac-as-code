@@ -26,7 +26,7 @@ usage() {
 装机主入口：分步多选（↑↓ / 空格）→ 系统设置 → 软件 → Dock。
 默认先跑装机前 doctor；结果汇总保存到项目内 logs/（无装机后 doctor）。
 
-步骤名：defaults, brew, zsh, dock
+步骤名：defaults, brew, plugin, dock（zsh 仍可作为 plugin 的别名）
 示例：
   sh init.sh
   bash init.sh
@@ -54,7 +54,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --from)
             if [ -z "${2:-}" ]; then
-                echo "❌ --from 需要指定步骤名：defaults, brew, zsh, dock"
+                echo "❌ --from 需要指定步骤名：defaults, brew, plugin, dock"
                 exit 1
             fi
             START_FROM="$2"
@@ -217,17 +217,49 @@ maybe_run_brew() {
     run_step "brew" "🍺 安装 Homebrew 及软件..." "$SCRIPTS_DIR/brew.sh"
 }
 
+maybe_run_plugins() {
+    state=""
+    type=""
+    name=""
+    label=""
+    script=""
+
+    if ! plan_has_on "$PLAN_FILE" "plugin"; then
+        echo
+        echo "⏭️  跳过：插件（未选中任何项）"
+        record_result "SKIP" "步骤:plugin" "用户未选中"
+        return 0
+    fi
+
+    # --from plugin（或旧别名 zsh）从此步开始；其它起始步则整段跳过
+    if [ -n "$START_FROM" ] && [ "$START_FROM" != "plugin" ] && [ "$START_FROM" != "zsh" ]; then
+        echo
+        echo "⏭️  跳过：插件（未到达 --from 起始步骤）"
+        while IFS='|' read -r state type name label || [ -n "${state:-}" ]; do
+            [ "${state:-}" = "ON" ] && [ "${type:-}" = "plugin" ] || continue
+            record_result "SKIP" "plugin:${name}" "未到达 --from 起始步骤"
+        done <"$PLAN_FILE"
+        return 0
+    fi
+    START_FROM=""
+
+    while IFS='|' read -r state type name label || [ -n "${state:-}" ]; do
+        [ "${state:-}" = "ON" ] && [ "${type:-}" = "plugin" ] || continue
+        script="$CONFIG_DIR/plugins/${name}.sh"
+        if [ ! -f "$script" ]; then
+            echo
+            echo "❌ 插件脚本不存在：${script}"
+            record_result "FAIL" "plugin:${name}" "脚本不存在"
+            STEP_FAIL_COUNT=$((STEP_FAIL_COUNT + 1))
+            continue
+        fi
+        run_step "plugin:${name}" "🐚 ${label:-$name}..." "$script"
+    done <"$PLAN_FILE"
+}
+
 maybe_run_type "defaults" "defaults" "🔧 修改系统设置..." "$CONFIG_DIR/defaults_config.sh"
 maybe_run_brew
-
-if plan_has_on "$PLAN_FILE" "plugin" "oh-my-zsh"; then
-    run_step "zsh" "🐚 安装 Oh My Zsh..." "$SCRIPTS_DIR/oh_my_zsh.sh"
-else
-    echo
-    echo "⏭️  跳过：🐚 安装 Oh My Zsh...（未选中）"
-    record_result "SKIP" "步骤:zsh" "用户未选中"
-fi
-
+maybe_run_plugins
 maybe_run_type "dock" "dock" "🖥️  配置 Dock..." "$CONFIG_DIR/defaults_dock.sh"
 
 print_results_summary "$MAC_AS_CODE_RESULTS"

@@ -1,0 +1,7 @@
+brew "ok"
+brew ""
+cask iterm2
+mas "NoId"
+mas "BadId", id: abc
+tap "homebrew/core"
+unknown "thing"

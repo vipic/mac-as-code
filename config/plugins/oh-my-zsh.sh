@@ -1,4 +1,5 @@
 #!/bin/sh
+# oh-my-zsh | Oh My Zsh（非交互安装）
 set -eu
 
 ################################
@@ -32,7 +33,7 @@ echo "🐚 安装 Oh My Zsh..."
 
 # --unattended 会跳过 chsh 和安装后进入 zsh，适合初始化脚本。
 # 默认让官方脚本备份并替换已有 .zshrc；如果要保留已有 .zshrc，可执行：
-# KEEP_ZSHRC=yes sh scripts/oh_my_zsh.sh
+# KEEP_ZSHRC=yes sh config/plugins/oh-my-zsh.sh
 export RUNZSH=no
 export CHSH=no
 export KEEP_ZSHRC="${KEEP_ZSHRC:-no}"

@@ -21,3 +21,8 @@ jobs:
           bash -n ./*.sh
           bash -n ./scripts/*.sh
           bash -n ./config/*.sh
+          bash -n ./config/plugins/*.sh
+          bash -n ./tests/fixtures/*.sh
+
+      - name: Check config format
+        run: sh scripts/check_format.sh --self-test

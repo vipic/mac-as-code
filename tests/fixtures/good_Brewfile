@@ -1,0 +1,4 @@
+# 注释可保留
+brew "ripgrep"
+cask "iterm2"
+mas "Xcode", id: 497799835

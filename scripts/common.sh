@@ -290,9 +290,39 @@ run_annotated_shell_items() {
     _annotated_applied="$_ann_applied"
 }
 
+# 列出 config/plugins/*.sh：输出 id|说明
+# 约定：文件名（去 .sh）为 id；文件内首个「# id | 说明」提供多选文案（id 应与文件名一致）。
+list_plugin_items() {
+    plugins_dir="$1"
+    f=""
+    id=""
+    meta=""
+    meta_id=""
+    label=""
+
+    [ -d "$plugins_dir" ] || return 0
+
+    for f in "$plugins_dir"/*.sh; do
+        [ -f "$f" ] || continue
+        id="$(basename "$f" .sh)"
+        meta="$(list_annotated_shell_items "$f" | awk 'NR == 1 { print; exit }')"
+        if [ -n "$meta" ]; then
+            meta_id="${meta%%|*}"
+            label="${meta#*|}"
+            if [ "$meta_id" != "$id" ]; then
+                echo "⚠️  插件 ${f}：项头 id「${meta_id}」与文件名「${id}」不一致，以文件名为准" >&2
+            fi
+            [ -n "$label" ] || label="$id"
+        else
+            label="$id"
+        fi
+        printf '%s|%s\n' "$id" "$label"
+    done
+}
+
 # 计划文件格式：ON|type|name|extra 或 OFF|type|name|extra
 # type: defaults|dock|plugin|brew|cask|mas
-# defaults/dock 的 extra 为中文说明；mas 的 extra 为 App Store id
+# defaults/dock/plugin 的 extra 为说明；mas 的 extra 为 App Store id
 # 参数：brewfile plan [config_dir]
 create_default_plan() {
     brewfile="$1"
@@ -314,7 +344,12 @@ create_default_plan() {
                 printf 'ON|dock|%s|%s\n' "$item_id" "$item_label"
             done
         fi
-        echo "ON|plugin|oh-my-zsh|Oh My Zsh"
+        if [ -n "$config_dir" ] && [ -d "$config_dir/plugins" ]; then
+            list_plugin_items "$config_dir/plugins" | while IFS='|' read -r item_id item_label; do
+                [ -n "$item_id" ] || continue
+                printf 'ON|plugin|%s|%s\n' "$item_id" "$item_label"
+            done
+        fi
         while IFS='|' read -r type name id || [ -n "${type:-}" ]; do
             [ -n "${type:-}" ] || continue
             printf 'ON|%s|%s|%s\n' "$type" "$name" "$id"

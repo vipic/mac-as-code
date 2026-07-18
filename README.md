@@ -7,8 +7,10 @@
 | `sh init.sh`（或 `bash init.sh`） | 分步多选，按需执行 |
 | `sh scripts/backup.sh` | 备份个人数据（自动生成快照目录），信息不上 Github。外置硬盘转移再恢复。非常个人化 |
 | `sh scripts/doctor.sh` | 检查环境（可选） |
+| `sh scripts/check_format.sh` | 检查 `config/` 编写格式（注解项 / Brewfile） |
+| `sh scripts/check_format.sh --self-test` | 用固定件验证检查脚本本身（改它时用） |
 
-可改的清单在 `config/`（Brewfile、系统设置、Dock）；实现脚本在 `scripts/`。
+可改的清单在 `config/`（Brewfile、系统设置、Dock、plugins）；实现脚本在 `scripts/`。
 
 ## ⚠️ 注意
 
@@ -53,7 +55,14 @@ sh restore.sh
 
 ## 📝 其他
 
-配置按个人习惯编写，可按需改。`config/Brewfile` 可用 `brew bundle dump` 更新。CI 只做 `bash -n` 语法检查。
+配置按个人习惯编写，可按需改。`config/Brewfile` 可用 `brew bundle dump` 更新。改完配置后建议跑：
+
+```shell
+sh scripts/check_format.sh              # 查仓库 config（日常改配置用这个）
+sh scripts/check_format.sh --self-test  # 改 check_format 时：固定件自测 + 再查 config
+```
+
+CI 会跑 `bash -n` 与 `check_format.sh --self-test`。
 
 系统设置 / Dock 在 `config/defaults_config.sh`、`config/defaults_dock.sh` 里用「注释 + 命令」维护，格式：
 
@@ -63,3 +72,13 @@ defaults write NSGlobalDomain SomeKey -int 1
 ```
 
 增减一项只需加/删这样一段；`init` 多选与执行会自动解析，不必再改目录表或 `case`。
+
+插件放在 `config/plugins/`：每个 `<id>.sh` 一个插件，文件头写明多选文案即可被发现：
+
+```shell
+#!/bin/sh
+# oh-my-zsh | Oh My Zsh（非交互安装）
+# …安装逻辑
+```
+
+`check_format` 会校验：注解项格式、插件头 id 与文件名一致、Brewfile 的 `brew` / `cask` / `mas … id:` 行。
