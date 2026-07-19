@@ -32,6 +32,7 @@ cask "obsidian"
 cask "raycast"
 cask "sublime-text"
 cask "telegram"
+cask "transnomino"
 
 # 开发工具：终端、调试、容器、API 客户端
 # cask "android-platform-tools"
