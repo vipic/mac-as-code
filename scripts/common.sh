@@ -290,19 +290,19 @@ run_annotated_shell_items() {
     _annotated_applied="$_ann_applied"
 }
 
-# 列出 config/plugins/*.sh：输出 id|说明
+# 列出 config/recipes/*.sh：输出 id|说明
 # 约定：文件名（去 .sh）为 id；文件内首个「# id | 说明」提供多选文案（id 应与文件名一致）。
-list_plugin_items() {
-    plugins_dir="$1"
+list_recipe_items() {
+    recipes_dir="$1"
     f=""
     id=""
     meta=""
     meta_id=""
     label=""
 
-    [ -d "$plugins_dir" ] || return 0
+    [ -d "$recipes_dir" ] || return 0
 
-    for f in "$plugins_dir"/*.sh; do
+    for f in "$recipes_dir"/*.sh; do
         [ -f "$f" ] || continue
         id="$(basename "$f" .sh)"
         meta="$(list_annotated_shell_items "$f" | awk 'NR == 1 { print; exit }')"
@@ -310,7 +310,7 @@ list_plugin_items() {
             meta_id="${meta%%|*}"
             label="${meta#*|}"
             if [ "$meta_id" != "$id" ]; then
-                echo "⚠️  插件 ${f}：项头 id「${meta_id}」与文件名「${id}」不一致，以文件名为准" >&2
+                echo "⚠️  Recipe ${f}：项头 id「${meta_id}」与文件名「${id}」不一致，以文件名为准" >&2
             fi
             [ -n "$label" ] || label="$id"
         else
@@ -321,8 +321,8 @@ list_plugin_items() {
 }
 
 # 计划文件格式：ON|type|name|extra 或 OFF|type|name|extra
-# type: defaults|dock|plugin|brew|cask|mas
-# defaults/dock/plugin 的 extra 为说明；mas 的 extra 为 App Store id
+# type: defaults|dock|recipe|brew|cask|mas
+# defaults/dock/recipe 的 extra 为说明；mas 的 extra 为 App Store id
 # 参数：brewfile plan [config_dir]
 create_default_plan() {
     brewfile="$1"
@@ -344,10 +344,10 @@ create_default_plan() {
                 printf 'ON|dock|%s|%s\n' "$item_id" "$item_label"
             done
         fi
-        if [ -n "$config_dir" ] && [ -d "$config_dir/plugins" ]; then
-            list_plugin_items "$config_dir/plugins" | while IFS='|' read -r item_id item_label; do
+        if [ -n "$config_dir" ] && [ -d "$config_dir/recipes" ]; then
+            list_recipe_items "$config_dir/recipes" | while IFS='|' read -r item_id item_label; do
                 [ -n "$item_id" ] || continue
-                printf 'ON|plugin|%s|%s\n' "$item_id" "$item_label"
+                printf 'ON|recipe|%s|%s\n' "$item_id" "$item_label"
             done
         fi
         while IFS='|' read -r type name id || [ -n "${type:-}" ]; do
@@ -590,7 +590,7 @@ checkbox_select_step() {
                     extra = $4
                     if (type == "defaults" || type == "dock") {
                         label = (extra != "") ? extra : name
-                    } else if (type == "plugin") {
+                    } else if (type == "recipe") {
                         label = (extra != "") ? extra : name
                     } else if (type == "brew") {
                         label = "[brew] " name
@@ -672,7 +672,7 @@ edit_plan_interactive() {
     else
         echo "ℹ️  步骤 4/5：Brewfile 中无 App Store 应用，跳过"
     fi
-    checkbox_select_step "步骤 5/5：插件（Oh My Zsh 等）" "plugin" "$plan" || return $?
+    checkbox_select_step "步骤 5/5：Recipes（独立安装脚本）" "recipe" "$plan" || return $?
 
     echo
     echo "选项已确认，开始装机（中途不再询问模块选项）。"

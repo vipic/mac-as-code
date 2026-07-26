@@ -19,10 +19,10 @@ usage() {
       sh scripts/check_format.sh --self-test
       bash scripts/check_format.sh 亦可
 
-检查 defaults / dock 注解项、plugins 与 Brewfile 格式。无参数时检查：
+检查 defaults / dock 注解项、recipes 与 Brewfile 格式。无参数时检查：
   config/defaults_config.sh
   config/defaults_dock.sh
-  config/plugins/*.sh
+  config/recipes/*.sh
   config/Brewfile
 
   --self-test   用 tests/fixtures 验证本脚本（改 check_format 时用）
@@ -33,7 +33,7 @@ usage() {
   # my-setting | 这一项的说明（多选里显示）
   defaults write NSGlobalDomain SomeKey -int 1
 
-插件（config/plugins/<id>.sh）文件头：
+Recipe（config/recipes/<id>.sh）文件头：
   # <id> | 说明（id 须与文件名一致）
 
 Brewfile 启用行仅支持：
@@ -329,17 +329,17 @@ check_brewfile() {
     rm -f "$errors"
 }
 
-# 插件脚本：文件名即 id，须有匹配的「# id | 说明」头
-check_plugin_script() {
+# Recipe 脚本：文件名即 id，须有匹配的「# id | 说明」头
+check_recipe_script() {
     file="$1"
     label="${2:-$file}"
     id=""
     meta_id=""
     meta_label=""
     header_count=0
-    errors="$(mktemp -t mac-as-code-plugin.XXXXXX)"
+    errors="$(mktemp -t mac-as-code-recipe.XXXXXX)"
 
-    section "插件：${label}"
+    section "Recipe：${label}"
     CHECKED=$((CHECKED + 1))
 
     if [ ! -f "$file" ]; then
@@ -365,7 +365,7 @@ check_plugin_script() {
     )"
 
     if [ "$header_count" -eq 0 ]; then
-        fail "缺少插件头「# ${id} | 说明」"
+        fail "缺少 Recipe 头「# ${id} | 说明」"
     else
         meta_id="$(
             awk '
@@ -396,10 +396,10 @@ check_plugin_script() {
         elif [ -z "$meta_label" ]; then
             fail "项头说明为空"
         else
-            pass "插件头：${meta_id} | ${meta_label}"
+            pass "Recipe 头：${meta_id} | ${meta_label}"
         fi
         if [ "$header_count" -gt 1 ]; then
-            fail "插件文件应只有一个「# id | 说明」头（当前 ${header_count} 个）"
+            fail "Recipe 文件应只有一个「# id | 说明」头（当前 ${header_count} 个）"
         fi
     fi
 
@@ -410,8 +410,8 @@ check_path() {
     path="$1"
     base="$(basename "$path")"
     case "$path" in
-        */plugins/*.sh)
-            check_plugin_script "$path"
+        */recipes/*.sh)
+            check_recipe_script "$path"
             return 0
             ;;
     esac
@@ -553,10 +553,10 @@ echo "🔍 检查配置格式..."
 if [ "$#" -eq 0 ]; then
     check_annotated_shell "$ROOT_DIR/config/defaults_config.sh" "config/defaults_config.sh"
     check_annotated_shell "$ROOT_DIR/config/defaults_dock.sh" "config/defaults_dock.sh"
-    if [ -d "$ROOT_DIR/config/plugins" ]; then
-        for plugin in "$ROOT_DIR/config/plugins"/*.sh; do
-            [ -f "$plugin" ] || continue
-            check_plugin_script "$plugin" "config/plugins/$(basename "$plugin")"
+    if [ -d "$ROOT_DIR/config/recipes" ]; then
+        for recipe in "$ROOT_DIR/config/recipes"/*.sh; do
+            [ -f "$recipe" ] || continue
+            check_recipe_script "$recipe" "config/recipes/$(basename "$recipe")"
         done
     fi
     check_brewfile "$ROOT_DIR/config/Brewfile" "config/Brewfile"
