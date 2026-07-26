@@ -19,10 +19,11 @@ usage() {
       sh scripts/check_format.sh --self-test
       bash scripts/check_format.sh 亦可
 
-检查 defaults / dock 注解项、recipes 与 Brewfile 格式。无参数时检查：
+检查 defaults / dock 注解项、recipes、GitHub Releases 应用清单与 Brewfile 格式。无参数时检查：
   config/defaults_config.sh
   config/defaults_dock.sh
   config/recipes/*.sh
+  config/github_release_apps.conf
   config/Brewfile
 
   --self-test   用 tests/fixtures 验证本脚本（改 check_format 时用）
@@ -35,6 +36,9 @@ usage() {
 
 Recipe（config/recipes/<id>.sh）文件头：
   # <id> | 说明（id 须与文件名一致）
+
+GitHub Releases 应用清单：
+  owner/repo
 
 Brewfile 启用行仅支持：
   brew "name"
@@ -406,6 +410,68 @@ check_recipe_script() {
     rm -f "$errors"
 }
 
+# GitHub Releases 应用清单：每个非注释行是一个 owner/repo，仓库不可重复。
+check_github_release_apps() {
+    file="$1"
+    label="${2:-$file}"
+    errors="$(mktemp -t mac-as-code-github-apps.XXXXXX)"
+    counts=""
+
+    section "GitHub Releases 应用：${label}"
+    CHECKED=$((CHECKED + 1))
+
+    if [ ! -f "$file" ]; then
+        fail "文件不存在：${file}"
+        rm -f "$errors"
+        return 1
+    fi
+
+    counts="$(
+        awk -v errfile="$errors" '
+            BEGIN {
+                active = 0
+                err_count = 0
+            }
+            function trim(value) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+                return value
+            }
+            function emit(message) {
+                print message >> errfile
+                err_count++
+            }
+            {
+                raw = $0
+                line = trim(raw)
+                if (line == "" || line ~ /^#/) next
+
+                active++
+                if (line !~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/) {
+                    emit(sprintf("第 %d 行：GitHub 仓库应为 owner/repo：%s", NR, raw))
+                } else if (seen[line]++) {
+                    emit(sprintf("第 %d 行：GitHub 仓库重复：%s", NR, line))
+                }
+            }
+            END {
+                if (active == 0) emit("没有启用的 GitHub Releases 应用")
+                printf "%d %d\n", active, err_count
+            }
+        ' "$file"
+    )"
+
+    active="$(printf '%s' "$counts" | awk '{ print $1 }')"
+    err_count="$(printf '%s' "$counts" | awk '{ print $2 }')"
+
+    if [ "${err_count:-0}" -gt 0 ]; then
+        fail "清单格式：发现 ${err_count} 处问题（启用项 ${active}）"
+        sed 's/^/     /' "$errors"
+    else
+        pass "清单格式：${active} 个应用"
+    fi
+
+    rm -f "$errors"
+}
+
 check_path() {
     path="$1"
     base="$(basename "$path")"
@@ -416,6 +482,9 @@ check_path() {
             ;;
     esac
     case "$base" in
+        *github_release_apps.conf)
+            check_github_release_apps "$path"
+            ;;
         Brewfile|*Brewfile*|*.brewfile)
             check_brewfile "$path"
             ;;
@@ -482,6 +551,14 @@ run_self_test() {
     assert_exit "fixtures/bad_defaults.sh" 1 sh "$SELF" "$FIXTURES/bad_defaults.sh"
     assert_exit "fixtures/good_Brewfile" 0 sh "$SELF" "$FIXTURES/good_Brewfile"
     assert_exit "fixtures/bad_Brewfile" 1 sh "$SELF" "$FIXTURES/bad_Brewfile"
+    assert_exit \
+        "fixtures/good_github_release_apps.conf" \
+        0 \
+        sh "$SELF" "$FIXTURES/good_github_release_apps.conf"
+    assert_exit \
+        "fixtures/bad_github_release_apps.conf" \
+        1 \
+        sh "$SELF" "$FIXTURES/bad_github_release_apps.conf"
 
     echo
     echo "🔍 再检查仓库 config..."
@@ -559,6 +636,9 @@ if [ "$#" -eq 0 ]; then
             check_recipe_script "$recipe" "config/recipes/$(basename "$recipe")"
         done
     fi
+    check_github_release_apps \
+        "$ROOT_DIR/config/github_release_apps.conf" \
+        "config/github_release_apps.conf"
     check_brewfile "$ROOT_DIR/config/Brewfile" "config/Brewfile"
 else
     for path in "$@"; do

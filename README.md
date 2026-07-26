@@ -7,10 +7,10 @@
 | `sh init.sh`（或 `bash init.sh`） | 分步多选，按需执行 |
 | `sh scripts/backup.sh` | 备份个人数据（自动生成快照目录），信息不上 Github。外置硬盘转移再恢复。非常个人化 |
 | `sh scripts/doctor.sh` | 检查环境（可选） |
-| `sh scripts/check_format.sh` | 检查 `config/` 编写格式（注解项 / Brewfile） |
+| `sh scripts/check_format.sh` | 检查 `config/` 编写格式（注解项 / 软件清单） |
 | `sh scripts/check_format.sh --self-test` | 用固定件验证检查脚本本身（改它时用） |
 
-可改的清单在 `config/`（Brewfile、系统设置、Dock、recipes）；实现脚本在 `scripts/`。
+可改的清单在 `config/`（Brewfile、GitHub Releases 应用、系统设置、Dock、recipes）；实现脚本在 `scripts/`。
 
 ## ⚠️ 注意
 
@@ -30,11 +30,11 @@ bash init.sh
 2. Dock（展开为具体 Dock 项）
 3. Homebrew 软件（formula / cask）
 4. App Store 应用（若有）
-5. Recipes（Oh My Zsh 等独立安装脚本）
+5. Recipes / GitHub Releases 应用
 
 操作：`↑↓` 移动，`空格` 选中/取消，`a` 全选，`n` 全不选，`Enter` 确认进入下一步，`q` 退出。确认后开始执行，中途不再询问，但可能需要管理员授权
 
-主线三块：系统设置 → 软件安装（Brewfile，含 mas）→ Dock。若勾选了 App Store 应用，会在装机前打开 App Store 并等待登录确认。
+主线三块：系统设置 → 软件安装（Brewfile、GitHub Releases 应用与 Recipes）→ Dock。若勾选了 App Store 应用，会在装机前打开 App Store 并等待登录确认。
 
 软件按计划 **逐个**下载安装；失败单项会记录并继续。结束打印汇总，并写入项目内 `logs/init-*.tsv`。
 
@@ -83,4 +83,42 @@ Recipes 放在 `config/recipes/`：每个 `<id>.sh` 是一个可独立执行的 
 
 每个 recipe 都可以直接用 `sh config/recipes/<id>.sh` 单独执行；`init.sh` 也会自动发现并在 Brew/MAS 之后逐个执行。
 
-`check_format` 会校验：注解项格式、Recipe 头 id 与文件名一致、Brewfile 的 `brew` / `cask` / `mas … id:` 行。
+当前内置 Recipe 为 `oh-my-zsh`。
+
+### GitHub Releases 应用
+
+不在 Brew / MAS 中、但通过 GitHub Releases 发布 DMG 的应用，统一写在 `config/github_release_apps.conf`：
+
+```text
+# 每行一个 GitHub 仓库（owner/repo）；仓库名用于推导 App 名称
+vipic/Pastry
+vipic/TextFlash
+stablyai/orca
+```
+
+清单允许空行和以 `#` 开头的整行注释，可以按软件用途分组说明。
+
+应用 id、显示名称和安装路径会从仓库名自动生成，仓库名首字母会自动大写。例如 `stablyai/orca` 会生成 `orca`，显示为 `Orca`，并安装到 `/Applications/Orca.app`。
+
+`init.sh` 会自动读取清单，并把每个应用加入最后一步的多选列表。`scripts/github_release_apps.sh` 负责读取清单，`scripts/install_github_release_app.sh` 负责单个应用的实际安装，两者都不依赖 `jq`。安装器使用 macOS 自带的 `plutil` 解析 GitHub API 返回值，并执行以下流程：
+
+1. 查询仓库的 latest release（不选 prerelease）
+2. 找到 macOS DMG；有多个 DMG 时根据 Apple Silicon / Intel 架构选包
+3. 比较 `/Applications/<App>.app` 的当前版本
+4. 下载 DMG，并在 GitHub 提供 digest 时校验 SHA-256
+5. 挂载镜像、校验应用代码签名，再复制到 `/Applications`
+6. 卸载镜像并清理临时文件
+
+可单独安装：
+
+```shell
+sh scripts/github_release_apps.sh pastry
+sh scripts/github_release_apps.sh textflash
+
+# 不传 id 时按清单安装全部
+sh scripts/github_release_apps.sh
+```
+
+如果最新 Release 没有 DMG，或者根据当前 CPU 架构仍不能唯一确定 DMG，安装器会停止并提示人工确认，避免选错安装包。新增同类应用只需在 `config/github_release_apps.conf` 增加一行，不需要再写 Recipe 或修改 `init.sh`。如果首字母大写后的仓库名与 App 名称仍不一致，则改用独立 Recipe。
+
+`check_format` 会校验：注解项格式、Recipe 头 id 与文件名一致、GitHub Releases 应用清单字段、Brewfile 的 `brew` / `cask` / `mas … id:` 行。

@@ -320,9 +320,61 @@ list_recipe_items() {
     done
 }
 
+# 解析 config/github_release_apps.conf。
+# 格式：每行一个 GitHub 仓库（owner/repo），仓库名首字母大写后作为 App 名称。
+# 输出：id|显示名称|仓库|App 名称|安装路径。
+# 空行和以 # 开头的注释行会忽略。
+parse_github_release_apps() {
+    config_file="$1"
+    line=""
+    app_id=""
+    label=""
+    repository=""
+    app_name=""
+    app_path=""
+
+    [ -f "$config_file" ] || return 0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="$(trim "$line")"
+        case "$line" in
+            ''|\#*) continue ;;
+        esac
+
+        repository="$line"
+        repository_name="${repository##*/}"
+        app_name="$(
+            printf '%s\n' "$repository_name" |
+                awk '{
+                    print toupper(substr($0, 1, 1)) substr($0, 2)
+                }'
+        )"
+        app_id="$(
+            printf '%s\n' "$repository_name" |
+                tr '[:upper:]' '[:lower:]' |
+                tr '.' '-'
+        )"
+        label="$app_name"
+        app_path="/Applications/${app_name}.app"
+        printf '%s|%s|%s|%s|%s\n' \
+            "$app_id" "$label" "$repository" "$app_name" "$app_path"
+    done <"$config_file"
+}
+
+# 列出 GitHub Releases 应用：输出 id|说明
+list_github_release_app_items() {
+    config_file="$1"
+
+    parse_github_release_apps "$config_file" |
+        while IFS='|' read -r app_id label _repository _app_name _app_path; do
+            [ -n "$app_id" ] || continue
+            printf '%s|%s\n' "$app_id" "$label"
+        done
+}
+
 # 计划文件格式：ON|type|name|extra 或 OFF|type|name|extra
-# type: defaults|dock|recipe|brew|cask|mas
-# defaults/dock/recipe 的 extra 为说明；mas 的 extra 为 App Store id
+# type: defaults|dock|recipe|github-release|brew|cask|mas
+# defaults/dock/recipe/github-release 的 extra 为说明；mas 的 extra 为 App Store id
 # 参数：brewfile plan [config_dir]
 create_default_plan() {
     brewfile="$1"
@@ -349,6 +401,13 @@ create_default_plan() {
                 [ -n "$item_id" ] || continue
                 printf 'ON|recipe|%s|%s\n' "$item_id" "$item_label"
             done
+        fi
+        if [ -n "$config_dir" ] && [ -f "$config_dir/github_release_apps.conf" ]; then
+            list_github_release_app_items "$config_dir/github_release_apps.conf" |
+                while IFS='|' read -r item_id item_label; do
+                    [ -n "$item_id" ] || continue
+                    printf 'ON|github-release|%s|%s\n' "$item_id" "$item_label"
+                done
         fi
         while IFS='|' read -r type name id || [ -n "${type:-}" ]; do
             [ -n "${type:-}" ] || continue
@@ -592,6 +651,8 @@ checkbox_select_step() {
                         label = (extra != "") ? extra : name
                     } else if (type == "recipe") {
                         label = (extra != "") ? extra : name
+                    } else if (type == "github-release") {
+                        label = "[GitHub] " ((extra != "") ? extra : name)
                     } else if (type == "brew") {
                         label = "[brew] " name
                     } else if (type == "cask") {
@@ -651,7 +712,7 @@ checkbox_select_step() {
     echo "✅ 已确认：${title}"
 }
 
-# 分步编辑计划：模块 → Homebrew → App Store
+# 分步编辑计划：系统设置 → Dock → Homebrew → App Store → Recipes / GitHub Releases
 # 返回 2 表示用户按 q 退出
 edit_plan_interactive() {
     plan="$1"
@@ -672,7 +733,10 @@ edit_plan_interactive() {
     else
         echo "ℹ️  步骤 4/5：Brewfile 中无 App Store 应用，跳过"
     fi
-    checkbox_select_step "步骤 5/5：Recipes（独立安装脚本）" "recipe" "$plan" || return $?
+    checkbox_select_step \
+        "步骤 5/5：Recipes / GitHub Releases 应用" \
+        "recipe|github-release" \
+        "$plan" || return $?
 
     echo
     echo "选项已确认，开始装机（中途不再询问模块选项）。"

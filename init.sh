@@ -168,6 +168,7 @@ run_step() {
     name="$1"
     description="$2"
     script_path="$3"
+    shift 3
 
     if [ -n "$START_FROM" ] && [ "$START_FROM" != "$name" ]; then
         echo "⏭️  跳过：${description}"
@@ -178,7 +179,7 @@ run_step() {
 
     echo
     echo "$description"
-    if sh "$script_path"; then
+    if sh "$script_path" "$@"; then
         record_result "OK" "步骤:$name" "完成"
     else
         echo "⚠️  步骤失败：${name}（已记录，继续执行后续步骤）"
@@ -224,9 +225,10 @@ maybe_run_recipes() {
     label=""
     script=""
 
-    if ! plan_has_on "$PLAN_FILE" "recipe"; then
+    if ! plan_has_on "$PLAN_FILE" "recipe" &&
+        ! plan_has_on "$PLAN_FILE" "github-release"; then
         echo
-        echo "⏭️  跳过：Recipes（未选中任何项）"
+        echo "⏭️  跳过：Recipes / GitHub Releases 应用（未选中任何项）"
         record_result "SKIP" "步骤:recipe" "用户未选中"
         return 0
     fi
@@ -236,24 +238,40 @@ maybe_run_recipes() {
         echo
         echo "⏭️  跳过：Recipes（未到达 --from 起始步骤）"
         while IFS='|' read -r state type name label || [ -n "${state:-}" ]; do
-            [ "${state:-}" = "ON" ] && [ "${type:-}" = "recipe" ] || continue
-            record_result "SKIP" "recipe:${name}" "未到达 --from 起始步骤"
+            [ "${state:-}" = "ON" ] || continue
+            case "${type:-}" in
+                recipe|github-release)
+                    record_result "SKIP" "${type}:${name}" "未到达 --from 起始步骤"
+                    ;;
+            esac
         done <"$PLAN_FILE"
         return 0
     fi
     START_FROM=""
 
     while IFS='|' read -r state type name label || [ -n "${state:-}" ]; do
-        [ "${state:-}" = "ON" ] && [ "${type:-}" = "recipe" ] || continue
-        script="$CONFIG_DIR/recipes/${name}.sh"
-        if [ ! -f "$script" ]; then
-            echo
-            echo "❌ Recipe 脚本不存在：${script}"
-            record_result "FAIL" "recipe:${name}" "脚本不存在"
-            STEP_FAIL_COUNT=$((STEP_FAIL_COUNT + 1))
-            continue
-        fi
-        run_step "recipe:${name}" "🧩 ${label:-$name}..." "$script"
+        [ "${state:-}" = "ON" ] || continue
+        case "${type:-}" in
+            recipe)
+                script="$CONFIG_DIR/recipes/${name}.sh"
+                if [ ! -f "$script" ]; then
+                    echo
+                    echo "❌ Recipe 脚本不存在：${script}"
+                    record_result "FAIL" "recipe:${name}" "脚本不存在"
+                    STEP_FAIL_COUNT=$((STEP_FAIL_COUNT + 1))
+                    continue
+                fi
+                run_step "recipe:${name}" "🧩 ${label:-$name}..." "$script"
+                ;;
+            github-release)
+                script="$SCRIPTS_DIR/github_release_apps.sh"
+                run_step \
+                    "github-release:${name}" \
+                    "📦 ${label:-$name}..." \
+                    "$script" \
+                    "$name"
+                ;;
+        esac
     done <"$PLAN_FILE"
 }
 
