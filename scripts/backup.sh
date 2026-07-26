@@ -395,6 +395,9 @@ fi
 restore_path "Git 配置" "home/.gitconfig" "$HOME/.gitconfig"
 restore_path "Zsh 配置" "home/.zshrc" "$HOME/.zshrc"
 
+quit_app "Ghostty"
+restore_path "Ghostty macOS 配置" "application-support/com.mitchellh.ghostty" "$HOME/Library/Application Support/com.mitchellh.ghostty"
+
 quit_app "iTerm2"
 quit_app "iTerm"
 import_defaults "iTerm2 偏好" "preferences/com.googlecode.iterm2.plist" "com.googlecode.iterm2"
@@ -426,7 +429,7 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
     esac
 done
 
-echo "✅ 恢复完成。建议重新打开 iTerm2、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
+echo "✅ 恢复完成。建议重新打开 Ghostty、iTerm2、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
 echo "   Brave：先登录 Sync 拉回扩展列表，再确认各插件本地配置是否已恢复。"
 RESTORE_SCRIPT
 
@@ -449,6 +452,7 @@ echo "📦 创建离线迁移快照：$SNAPSHOT_DIR"
 copy_ssh
 copy_path "Git 配置" "$HOME/.gitconfig" "home/.gitconfig"
 copy_path "Zsh 配置" "$HOME/.zshrc" "home/.zshrc"
+copy_path "Ghostty macOS 配置" "$HOME/Library/Application Support/com.mitchellh.ghostty" "application-support/com.mitchellh.ghostty"
 
 export_defaults "iTerm2 偏好" "com.googlecode.iterm2" "preferences/com.googlecode.iterm2.plist"
 export_defaults "CleanShot 偏好" "pl.maketheweb.cleanshotx" "preferences/pl.maketheweb.cleanshotx.plist"
