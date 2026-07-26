@@ -10,6 +10,7 @@ brew "gh"
 brew "gnupg"
 brew "ripgrep"
 brew "mas"
+brew "starship"
 brew "tree"
 
 # 开发工具：运行时、包管理、服务调试
@@ -26,6 +27,7 @@ brew "mise"
 # 必装：账号、浏览器、效率工具
 cask "1password"
 cask "brave-browser"
+cask "google-chrome"
 cask "cleanshot"
 cask "keyboard-maestro"
 cask "obsidian"
@@ -35,9 +37,10 @@ cask "telegram"
 cask "transnomino"
 
 # 开发工具：终端、调试、容器、API 客户端
-# cask "android-platform-tools"
+cask "android-platform-tools"
 cask "charles"
 # cask "insomnia"
+cask "ghostty"
 cask "iterm2"
 # cask "jetbrains-toolbox"
 cask "orbstack"
@@ -55,7 +58,8 @@ cask "skim"
 
 # 并非每个电脑都安装
 # cask "calibre"
-# cask "qbittorrent"
+cask "qbittorrent"
+cask "vibe-island"
 # cask "wireshark"
 
 
