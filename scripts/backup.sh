@@ -154,7 +154,10 @@ quit_brave() {
     fi
 }
 
-# 备份结束后菜单栏 Control Center 偶发错位；杀进程让系统自动拉起即可恢复。
+# 备份前会退出 Keyboard Maestro（含 Engine）。macOS Tahoe 起第三方菜单栏
+# NSStatusItem 改由 ControlCenter（StatusKit）统一托管；KM Engine 退出并卸下
+# Status Menu 后，ControlCenter 布局偶发错乱（图标错位/空白）。杀进程让系统
+# 自动拉起即可恢复。
 restart_control_center() {
     if /usr/bin/killall ControlCenter 2>/dev/null; then
         echo "🔄 已重启 ControlCenter（修复菜单栏显示）"
