@@ -14,24 +14,28 @@ brew "starship"
 brew "tree"
 
 # 开发工具：运行时、包管理、服务调试
+brew "herdr"
 brew "http-server"
 brew "mole"
 brew "node"
 brew "pnpm"
 brew "just"
 brew "mise"
+brew "python"
 
 # 可选：本地 AI / 大模型
-# brew "ollama"
+brew "ollama"
 
 # 必装：账号、浏览器、效率工具
 cask "1password"
 cask "brave-browser"
 cask "google-chrome"
+cask "chatgpt"
 cask "cleanshot"
 cask "keyboard-maestro"
 cask "obsidian"
 cask "raycast"
+cask "readdle-spark"
 cask "sublime-text"
 cask "telegram"
 cask "transnomino"
