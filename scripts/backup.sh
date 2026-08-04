@@ -154,6 +154,13 @@ quit_brave() {
     fi
 }
 
+# 备份结束后菜单栏 Control Center 偶发错位；杀进程让系统自动拉起即可恢复。
+restart_control_center() {
+    if /usr/bin/killall ControlCenter 2>/dev/null; then
+        echo "🔄 已重启 ControlCenter（修复菜单栏显示）"
+    fi
+}
+
 # Brave Sync 可同步书签/扩展列表，但多数插件的本地配置（chrome.storage.local / IndexedDB）不同步。
 backup_brave_extension_configs() {
     brave_profile="${BRAVE_PROFILE_DIR:-$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default}"
@@ -491,3 +498,4 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
 done
 
 echo "✅ 备份完成：$SNAPSHOT_DIR"
+restart_control_center
