@@ -599,14 +599,6 @@ checkbox_select_step() {
     cursor=1
     total=0
     key=""
-    mark=""
-    pointer=""
-    idx=0
-    state=""
-    type=""
-    name=""
-    id=""
-    label=""
 
     total="$(plan_count_types "$plan" "$types")"
     if [ "$total" -eq 0 ]; then

@@ -24,5 +24,17 @@ jobs:
           bash -n ./config/recipes/*.sh
           bash -n ./tests/fixtures/*.sh
 
+      - name: Install ShellCheck
+        run: brew install shellcheck
+
+      - name: ShellCheck
+        run: |
+          shellcheck -x -P SCRIPTDIR \
+            ./*.sh \
+            ./scripts/*.sh \
+            ./config/*.sh \
+            ./config/recipes/*.sh \
+            ./tests/fixtures/*.sh
+
       - name: Check config format
         run: sh scripts/check_format.sh --self-test

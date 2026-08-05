@@ -1,4 +1,6 @@
 #!/bin/sh
+# Fixture body after exit 0 is parsed by check_format; not dead code.
+# shellcheck disable=SC2317
 set -u
 exit 0
 

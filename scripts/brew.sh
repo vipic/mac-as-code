@@ -49,9 +49,9 @@ fi
 ##############################################
 
 install_formula() {
-    local name="$1"
-    local index="$2"
-    local total="$3"
+    name="$1"
+    index="$2"
+    total="$3"
 
     if brew list --formula "$name" >/dev/null 2>&1; then
         echo "✅ [$index/$total] $name 已安装，跳过"
@@ -81,9 +81,9 @@ install_formula() {
 }
 
 install_cask() {
-    local name="$1"
-    local index="$2"
-    local total="$3"
+    name="$1"
+    index="$2"
+    total="$3"
 
     if brew list --cask "$name" >/dev/null 2>&1; then
         echo "✅ [$index/$total] $name 已安装，跳过"

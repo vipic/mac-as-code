@@ -62,7 +62,7 @@ sh scripts/check_format.sh              # 查仓库 config（日常改配置用�
 sh scripts/check_format.sh --self-test  # 改 check_format 时：固定件自测 + 再查 config
 ```
 
-CI 会跑 `bash -n` 与 `check_format.sh --self-test`。
+CI 会跑 `bash -n`、`shellcheck` 与 `check_format.sh --self-test`。
 
 系统设置 / Dock 在 `config/defaults_config.sh`、`config/defaults_dock.sh` 里用「注释 + 命令」维护，格式：
 

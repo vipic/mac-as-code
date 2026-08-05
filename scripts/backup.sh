@@ -133,7 +133,7 @@ backup_textflash() {
 
     mkdir -p "$dest_root"
     if backup_dir="$("$textflash_backup_script" "$dest_root")"; then
-        rel_backup_dir="${backup_dir#$SNAPSHOT_DIR/}"
+        rel_backup_dir="${backup_dir#"$SNAPSHOT_DIR"/}"
         echo "✅ 已备份 TextFlash：$backup_dir"
         record_summary "DONE" "TextFlash 数据" "$rel_backup_dir"
     else

@@ -143,7 +143,7 @@ confirm_mas_upfront() {
 
     while true; do
         printf "登录完成后按 Enter > "
-        if ! read -r answer; then
+        if ! read -r _; then
             echo
             echo "⚠️  无法确认登录，仍继续尝试安装"
             export MAC_AS_CODE_MAS_READY=1

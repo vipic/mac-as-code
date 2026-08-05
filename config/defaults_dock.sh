@@ -1,4 +1,6 @@
 #!/bin/sh
+# Annotated items below exit 0 are parsed by run_annotated_shell_items, not dead code.
+# shellcheck disable=SC2317
 set -u
 
 CONFIG_DIR="$(cd "$(dirname "$0")" && pwd)"
