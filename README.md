@@ -51,7 +51,7 @@ sh restore.sh
 
 快照含：SSH、**`.gitconfig`（含 Git 用户信息）**、`.zshrc`、Ghostty、iTerm2、CleanShot、Keyboard Maestro、Rime/Squirrel、TextFlash，以及 Brave **插件本地配置**（Sync 不同步的那部分：`Local Extension Settings` + 扩展 IndexedDB）。书签/扩展列表仍靠 Brave Sync。
 
-Ghostty 配置统一放在 macOS 专用目录 `~/Library/Application Support/com.mitchellh.ghostty/`（主配置为 `config.ghostty`，旧版为 `config`），reset-kit 只迁移此目录；配置使用的 Maple Mono NF CN 字体由 Brewfile 安装，不进入快照。`TEXTFLASH_APP_PATH` 可指定非默认 TextFlash 路径。恢复前会保留现有文件为 `.before-restore-*`。
+Ghostty 配置统一放在 macOS 专用目录 `~/Library/Application Support/com.mitchellh.ghostty/`（主配置为 `config.ghostty`）；reset-kit 迁移整个目录，目录内的其他配置文件也会一并备份和恢复。配置使用的 Maple Mono NF CN 字体由 Brewfile 安装，不进入快照。`TEXTFLASH_APP_PATH` 可指定非默认 TextFlash 路径。恢复前会保留现有文件为 `.before-restore-*`。
 
 ## 📝 其他
 

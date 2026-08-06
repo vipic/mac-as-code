@@ -27,7 +27,7 @@ Shared instructions for coding agents (Cursor, Claude Code, Codex, Hermes, CLI, 
 
 ### 规则
 
-1. `scope` 可选；用短小英文，如 `ui`、`auth`、`health-sync`
+1. `scope` 可选；用短小英文，如 `init`、`backup`、`brew`
 2. 冒号后必须有一个空格
 3. 标题用中文，完整说明「做了什么 / 为什么」；不要只写「修复」「更新」
 4. 标题尽量不超过 72 字符
@@ -52,8 +52,8 @@ Commit 只保留用户约定的 subject（以及必要时的 body / `BREAKING CH
 
 ### 好例子
 
-- `feat(live-hr): 实时心率同步到 Mac`
-- `fix(menu): 修复右键退出无法关闭应用`
+- `feat(backup): 快照新增 Ghostty 配置目录`
+- `fix(init): 修复 Dock 项多选后未生效`
 - `refactor(ui): 统一中文文案表述`
 - `docs(agents): 补充提交规范`
 - `chore(deps): 升级依赖`
