@@ -446,10 +446,19 @@ check_github_release_apps() {
                 if (line == "" || line ~ /^#/) next
 
                 active++
-                if (line !~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/) {
-                    emit(sprintf("第 %d 行：GitHub 仓库应为 owner/repo：%s", NR, raw))
-                } else if (seen[line]++) {
-                    emit(sprintf("第 %d 行：GitHub 仓库重复：%s", NR, line))
+                repo = line
+                idx = index(line, "|")
+                if (idx > 0) {
+                    repo = trim(substr(line, 1, idx - 1))
+                    app = trim(substr(line, idx + 1))
+                    if (app == "") {
+                        emit(sprintf("第 %d 行：| 后应写 App 名称：%s", NR, raw))
+                    }
+                }
+                if (repo !~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/) {
+                    emit(sprintf("第 %d 行：GitHub 仓库应为 owner/repo 或 owner/repo|App 名称：%s", NR, raw))
+                } else if (seen[repo]++) {
+                    emit(sprintf("第 %d 行：GitHub 仓库重复：%s", NR, repo))
                 }
             }
             END {

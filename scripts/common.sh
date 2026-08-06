@@ -342,13 +342,22 @@ parse_github_release_apps() {
         esac
 
         repository="$line"
+        app_name=""
+        case "$line" in
+            *\|*)
+                repository="$(trim "${line%%|*}")"
+                app_name="$(trim "${line#*|}")"
+                ;;
+        esac
         repository_name="${repository##*/}"
-        app_name="$(
-            printf '%s\n' "$repository_name" |
-                awk '{
-                    print toupper(substr($0, 1, 1)) substr($0, 2)
-                }'
-        )"
+        if [ -z "$app_name" ]; then
+            app_name="$(
+                printf '%s\n' "$repository_name" |
+                    awk '{
+                        print toupper(substr($0, 1, 1)) substr($0, 2)
+                    }'
+            )"
+        fi
         app_id="$(
             printf '%s\n' "$repository_name" |
                 tr '[:upper:]' '[:lower:]' |
