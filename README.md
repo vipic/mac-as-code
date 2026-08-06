@@ -91,14 +91,14 @@ Recipes 放在 `config/recipes/`：每个 `<id>.sh` 是一个可独立执行的 
 
 ```text
 # 每行一个 GitHub 仓库（owner/repo）；仓库名用于推导 App 名称
-vipic/Pastry
-vipic/TextFlash
+vipic/pastry
+vipic/textflash|TextFlash
 stablyai/orca
 ```
 
 清单允许空行和以 `#` 开头的整行注释，可以按软件用途分组说明。
 
-应用 id、显示名称和安装路径会从仓库名自动生成，仓库名首字母会自动大写。例如 `stablyai/orca` 会生成 `orca`，显示为 `Orca`，并安装到 `/Applications/Orca.app`。
+应用 id、显示名称和安装路径会从仓库名自动生成，仓库名首字母会自动大写。例如 `stablyai/orca` 会生成 `orca`，显示为 `Orca`，并安装到 `/Applications/Orca.app`。推导结果与实际 App 名不一致时（如 `vipic/textflash` 的应用是 `TextFlash.app`），在仓库后用 `|` 显式指定 App 名称。
 
 `init.sh` 会自动读取清单，并把每个应用加入最后一步的多选列表。`scripts/github_release_apps.sh` 负责读取清单，`scripts/install_github_release_app.sh` 负责单个应用的实际安装，两者都不依赖 `jq`。安装器使用 macOS 自带的 `plutil` 解析 GitHub API 返回值，并执行以下流程：
 
@@ -119,6 +119,6 @@ sh scripts/github_release_apps.sh textflash
 sh scripts/github_release_apps.sh
 ```
 
-如果最新 Release 没有 DMG，或者根据当前 CPU 架构仍不能唯一确定 DMG，安装器会停止并提示人工确认，避免选错安装包。新增同类应用只需在 `config/github_release_apps.conf` 增加一行，不需要再写 Recipe 或修改 `init.sh`。如果首字母大写后的仓库名与 App 名称仍不一致，则改用独立 Recipe。
+如果最新 Release 没有 DMG，或者根据当前 CPU 架构仍不能唯一确定 DMG，安装器会停止并提示人工确认，避免选错安装包。新增同类应用只需在 `config/github_release_apps.conf` 增加一行，不需要再写 Recipe 或修改 `init.sh`。
 
 `check_format` 会校验：注解项格式、Recipe 头 id 与文件名一致、GitHub Releases 应用清单字段、Brewfile 的 `brew` / `cask` / `mas … id:` 行。
