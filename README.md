@@ -49,9 +49,11 @@ cd ~/Desktop/backup/reset-kit/<时间戳>-<机器名>
 sh restore.sh
 ```
 
-快照含：SSH、**`.gitconfig`（含 Git 用户信息）**、`.zshrc`、Ghostty、iTerm2、CleanShot、Keyboard Maestro、Rime/Squirrel、TextFlash，以及 Brave **插件本地配置**（Sync 不同步的那部分：`Local Extension Settings` + 扩展 IndexedDB）。书签/扩展列表仍靠 Brave Sync。
+快照含：SSH、**`.gitconfig`（含 Git 用户信息）**、`.zshrc`、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash，以及 Brave **插件本地配置**（Sync 不同步的那部分：`Local Extension Settings` + 扩展 IndexedDB）。书签/扩展列表仍靠 Brave Sync。
 
-Ghostty 配置统一放在 macOS 专用目录 `~/Library/Application Support/com.mitchellh.ghostty/`（主配置为 `config.ghostty`）；reset-kit 迁移整个目录，目录内的其他配置文件也会一并备份和恢复。配置使用的 Maple Mono NF CN 字体由 Brewfile 安装，不进入快照。`TEXTFLASH_APP_PATH` 可指定非默认 TextFlash 路径。恢复前会保留现有文件为 `.before-restore-*`。
+CleanShot / Keyboard Maestro 的偏好以 plist 原样备份（恢复时直接 `defaults import`）；TextFlash 新版用应用自带 CLI（`TextFlash export snippets|config`）导出 `snippets.json` 与 `config.json`（配置覆盖语言/替换时序/触发模式/开机启动/Unicode 输入与排除应用），恢复时用 `TextFlash import snippets|config` 导入，旧版无 CLI 时退回应用内置备份脚本。Ghostty、Rime、`.gitconfig`、`.zshrc` 本身就是纯文本。
+
+Ghostty 配置统一放在 macOS 专用目录 `~/Library/Application Support/com.mitchellh.ghostty/`（主配置为 `config.ghostty`）；reset-kit 迁移整个目录，目录内的其他配置文件也会一并备份和恢复。配置使用的 Maple Mono NF CN 字体由 Brewfile 安装，不进入快照。`TEXTFLASH_APP_PATH` 可指定非默认 TextFlash 路径。恢复前会保留现有文件为 `.before-restore-*`。备份会临时退出 Keyboard Maestro 与 Brave（保证数据一致），完成后自动重新打开；`RESET_KIT_SKIP_QUIT_APPS=1` 可跳过退出/重开（测试用）。
 
 ## 📝 其他
 

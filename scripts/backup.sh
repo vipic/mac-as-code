@@ -121,17 +121,46 @@ quit_keyboard_maestro() {
 
 backup_textflash() {
     textflash_app_path="${TEXTFLASH_APP_PATH:-/Applications/TextFlash.app}"
+    textflash_bin="$textflash_app_path/Contents/MacOS/TextFlash"
     textflash_backup_script="$textflash_app_path/Contents/Resources/Tools/textflash-backup.sh"
     rel_dest_root="application-backups/TextFlash"
     dest_root="$SNAPSHOT_DIR/$rel_dest_root"
 
+    mkdir -p "$dest_root"
+
+    # 新版应用内置 CLI：TextFlash export snippets|config（不启动 GUI，直接导出 JSON）。
+    # 用 strings 探测二进制是否带 CLI——旧版会忽略参数直接拉起 GUI，不能盲跑。
+    if [ -x "$textflash_bin" ] && /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export snippets"; then
+        snippets_ok=false
+        config_ok=false
+        if "$textflash_bin" export snippets -o "$dest_root/snippets.json" >/dev/null; then
+            snippets_ok=true
+        else
+            echo "⚠️  TextFlash 片段导出失败（CLI）"
+        fi
+        if "$textflash_bin" export config -o "$dest_root/config.json" >/dev/null; then
+            config_ok=true
+        else
+            echo "⚠️  TextFlash 配置导出失败（CLI）"
+        fi
+
+        if [ "$snippets_ok" = true ] && [ "$config_ok" = true ]; then
+            echo "✅ 已导出 TextFlash 片段与配置：$dest_root"
+            record_summary "DONE" "TextFlash 数据" "${rel_dest_root}（snippets.json + config.json）"
+        else
+            echo "⚠️  TextFlash 导出不完整"
+            record_summary "SKIP" "TextFlash 数据" "CLI 导出部分失败"
+        fi
+        return 0
+    fi
+
+    # 旧版无 CLI：退回应用内置备份脚本（textflash.db + preferences.plist）
     if [ ! -x "$textflash_backup_script" ]; then
         echo "⚠️  跳过，未找到 TextFlash 备份脚本：$textflash_backup_script"
         record_summary "SKIP" "TextFlash 数据" "未找到应用内备份脚本"
         return 0
     fi
 
-    mkdir -p "$dest_root"
     if backup_dir="$("$textflash_backup_script" "$dest_root")"; then
         rel_backup_dir="${backup_dir#"$SNAPSHOT_DIR"/}"
         echo "✅ 已备份 TextFlash：$backup_dir"
@@ -161,6 +190,23 @@ quit_brave() {
 restart_control_center() {
     if /usr/bin/killall ControlCenter 2>/dev/null; then
         echo "🔄 已重启 ControlCenter（修复菜单栏显示）"
+    fi
+}
+
+# 备份前退出了 Keyboard Maestro 与 Brave，完成后重新打开（不在运行才打开，避免重复启动）。
+# 测试模式（RESET_KIT_SKIP_QUIT_APPS=1）下未退出应用，同样跳过重新打开。
+reopen_backed_up_apps() {
+    if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
+        echo "ℹ️  跳过重新打开应用（测试模式）"
+        return 0
+    fi
+
+    if ! /usr/bin/pgrep -f "Keyboard Maestro" &>/dev/null; then
+        /usr/bin/open -a "Keyboard Maestro" && echo "✅ 已重新打开 Keyboard Maestro"
+    fi
+
+    if ! /usr/bin/pgrep -f "Brave Browser" &>/dev/null; then
+        /usr/bin/open -a "Brave Browser" && echo "✅ 已重新打开 Brave Browser"
     fi
 }
 
@@ -306,6 +352,7 @@ quit_app() {
 
 restore_textflash() {
     textflash_app_path="${TEXTFLASH_APP_PATH:-/Applications/TextFlash.app}"
+    textflash_bin="$textflash_app_path/Contents/MacOS/TextFlash"
     textflash_restore_script="$textflash_app_path/Contents/Resources/Tools/textflash-restore.sh"
     backup_root="$SNAPSHOT_DIR/application-backups/TextFlash"
 
@@ -315,6 +362,37 @@ restore_textflash() {
         return 0
     fi
 
+    # 新版快照（CLI 导出）：snippets.json + config.json，用应用 CLI 导入。
+    # 旧版 TextFlash 会忽略参数直接拉起 GUI，先探测 CLI 支持。
+    if [ -f "$backup_root/snippets.json" ]; then
+        if [ ! -x "$textflash_bin" ] || ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export snippets"; then
+            echo "⚠️  跳过，TextFlash 不支持 CLI 导入（需新版应用）：$textflash_bin"
+            record_summary "SKIP" "TextFlash 数据" "应用无 CLI 支持"
+            return 0
+        fi
+
+        quit_app "TextFlash"
+        sleep 1
+
+        ok=true
+        if ! "$textflash_bin" import snippets "$backup_root/snippets.json" >/dev/null; then
+            echo "⚠️  TextFlash 片段导入失败"
+            record_summary "SKIP" "TextFlash 片段导入" "CLI 执行失败"
+            ok=false
+        fi
+        if [ -f "$backup_root/config.json" ] && ! "$textflash_bin" import config "$backup_root/config.json" >/dev/null; then
+            echo "⚠️  TextFlash 配置导入失败"
+            record_summary "SKIP" "TextFlash 配置导入" "CLI 执行失败"
+            ok=false
+        fi
+        if [ "$ok" = true ]; then
+            echo "✅ 已恢复 TextFlash 片段与配置（CLI 导入）"
+            record_summary "DONE" "TextFlash 数据" "片段与配置（CLI 导入）"
+        fi
+        return 0
+    fi
+
+    # 旧版快照（应用内置备份脚本产物）：textflash.db
     if [ ! -x "$textflash_restore_script" ]; then
         echo "⚠️  跳过，未找到 TextFlash 恢复脚本：$textflash_restore_script"
         record_summary "SKIP" "TextFlash 数据" "未找到应用内恢复脚本"
@@ -408,10 +486,6 @@ restore_path "Zsh 配置" "home/.zshrc" "$HOME/.zshrc"
 quit_app "Ghostty"
 restore_path "Ghostty macOS 配置" "application-support/com.mitchellh.ghostty" "$HOME/Library/Application Support/com.mitchellh.ghostty"
 
-quit_app "iTerm2"
-quit_app "iTerm"
-import_defaults "iTerm2 偏好" "preferences/com.googlecode.iterm2.plist" "com.googlecode.iterm2"
-
 quit_app "CleanShot X"
 import_defaults "CleanShot 偏好" "preferences/pl.maketheweb.cleanshotx.plist" "pl.maketheweb.cleanshotx"
 
@@ -423,7 +497,6 @@ import_defaults "Keyboard Maestro Editor 偏好" "preferences/com.stairways.keyb
 import_defaults "Keyboard Maestro Engine 偏好" "preferences/com.stairways.keyboardmaestro.engine.plist" "com.stairways.keyboardmaestro.engine"
 
 restore_path "Rime 配置" "library/Rime" "$HOME/Library/Rime"
-import_defaults "Squirrel 偏好" "preferences/im.rime.inputmethod.Squirrel.plist" "im.rime.inputmethod.Squirrel"
 
 restore_textflash
 restore_brave_extension_configs
@@ -439,7 +512,7 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
     esac
 done
 
-echo "✅ 恢复完成。建议重新打开 Ghostty、iTerm2、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
+echo "✅ 恢复完成。建议重新打开 Ghostty、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
 echo "   Brave：先登录 Sync 拉回扩展列表，再确认各插件本地配置是否已恢复。"
 RESTORE_SCRIPT
 
@@ -464,7 +537,6 @@ copy_path "Git 配置" "$HOME/.gitconfig" "home/.gitconfig"
 copy_path "Zsh 配置" "$HOME/.zshrc" "home/.zshrc"
 copy_path "Ghostty macOS 配置" "$HOME/Library/Application Support/com.mitchellh.ghostty" "application-support/com.mitchellh.ghostty"
 
-export_defaults "iTerm2 偏好" "com.googlecode.iterm2" "preferences/com.googlecode.iterm2.plist"
 export_defaults "CleanShot 偏好" "pl.maketheweb.cleanshotx" "preferences/pl.maketheweb.cleanshotx.plist"
 
 echo "⌨️  退出 Keyboard Maestro 后备份配置..."
@@ -475,8 +547,6 @@ export_defaults "Keyboard Maestro Editor 偏好" "com.stairways.keyboardmaestro.
 export_defaults "Keyboard Maestro Engine 偏好" "com.stairways.keyboardmaestro.engine" "preferences/com.stairways.keyboardmaestro.engine.plist"
 
 copy_rime
-export_defaults "Squirrel 偏好" "im.rime.inputmethod.Squirrel" "preferences/im.rime.inputmethod.Squirrel.plist"
-
 backup_textflash
 backup_brave_extension_configs
 
@@ -501,4 +571,5 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
 done
 
 echo "✅ 备份完成：$SNAPSHOT_DIR"
+reopen_backed_up_apps
 restart_control_center
