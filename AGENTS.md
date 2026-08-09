@@ -1,94 +1,53 @@
-# AGENTS
+# mac-as-code — Agent 指南
 
-Shared instructions for coding agents (Cursor, Claude Code, Codex, Hermes, CLI, etc.).
+> 用 POSIX shell 管理 macOS 装机、配置、备份与恢复；新机必须无需预装第三方运行时即可启动。
 
-## Git 提交规范（强制）
+## 项目约定
 
-所有提交（人工或 agent）必须使用 Conventional Commits，标题使用中文说明。
+- 保持零第三方运行时依赖，不引入 mise、Python 包、Node 工具链或 jq；入口继续使用 `sh init.sh`。
+- `config/` 是声明式清单，`scripts/` 是实现；系统设置与 Dock 项维持“注释 + 命令”格式，Recipe 的文件名与头部 id 必须一致。
+- 日常配置改动运行 `sh scripts/check_format.sh`；修改校验器时运行 `sh scripts/check_format.sh --self-test`。
+- 提交前按 CI 口径运行全部 shell 的 `bash -n`、`shellcheck -x -P SCRIPTDIR` 与格式自测。
+- 备份内容可能包含 SSH、Git 用户信息和应用配置，不得把 reset-kit、日志或个人快照提交到仓库。
+- 安装数据源异常、资产不唯一或签名校验失败时明确停止，不得静默选择错误包或生成误导性结果。
 
-### 格式
+<!-- workspace-policy:start hash=3a9eb993bbc3 -->
+## 跨项目统一规则
 
-```text
-<type>(<optional-scope>): <中文说明>
-```
+以下区块由私有 `workspace-meta` 生成；项目专属规则请写在区块外。
 
-### 允许的 type
+### 协作
 
-- `feat` 新功能
-- `fix` 修 bug
-- `refactor` 重构（不改外部行为）
-- `perf` 性能优化
-- `docs` 文档
-- `test` 测试
-- `build` 构建 / 打包 / 发布链路
-- `ci` CI 配置
-- `chore` 杂务 / 依赖 / 工具
-- `style` 纯格式或样式（不影响逻辑）
+- [LANG-001] 文档、提交标题和用户可见文案默认使用中文。
 
-### 规则
+### Git
 
-1. `scope` 可选；用短小英文，如 `init`、`backup`、`brew`
-2. 冒号后必须有一个空格
-3. 标题用中文，完整说明「做了什么 / 为什么」；不要只写「修复」「更新」
-4. 标题尽量不超过 72 字符
-5. 标题不要以句号结尾
-6. 一次提交只做一件事；无关改动拆开提交
-7. 未明确要求时，不要自动 `git commit`
-8. 用户要求提交时，先看 `git status` / `git diff` / 最近提交风格，再起草 message
-9. 不要使用 `--no-verify` 跳过 hook
-10. 不要擅自 `git commit --amend`；仅在用户明确要求且符合安全条件时才 amend
+- [GIT-001] 提交使用 Conventional Commits，格式为 `<type>(<optional-scope>): <中文说明>`，标题不以句号结尾。
+- [GIT-002] 未明确要求时不要自动提交；需要提交时先检查 status、diff 和近期提交风格。
+- [GIT-003] 禁止使用 `--no-verify`，不得擅自 amend，也不得添加 Co-Authored-By 或其他 AI/工具署名 trailer。
 
-### 禁止 Co-Author / 署名尾注
+### 安全
 
-**禁止**在 commit message 中添加任何 co-author、生成器署名或类似 trailer，包括但不限于：
+- [SAFE-001] 保留用户已有和无关改动，不做顺手重构，不使用破坏性 Git 或文件操作。
+- [SAFE-002] 不得提交 `.env`、密钥、个人数据、日志、报告、缓存或构建产物。
 
-- `Co-Authored-By: ...`
-- `Co-authored-by: ...`
-- `Signed-off-by: ...`（除非用户或仓库明确要求）
-- `Generated-by: ...` / `Assisted-by: ...` / `Made-with: ...`
-- Cursor / Claude / Codex / Copilot / ChatGPT 等工具署名行
+### 验证
 
-Commit 只保留用户约定的 subject（以及必要时的 body / `BREAKING CHANGE`），不要附加 AI 相关元数据。
+- [VERIFY-001] 修改后运行仓库声明的统一验证入口；涉及页面流程时补跑对应 E2E。
 
-### 好例子
+### 依赖
 
-- `feat(backup): 快照新增 Ghostty 配置目录`
-- `fix(init): 修复 Dock 项多选后未生效`
-- `refactor(ui): 统一中文文案表述`
-- `docs(agents): 补充提交规范`
-- `chore(deps): 升级依赖`
+- [DEPS-001] 改动保持最小，不引入项目基线之外的新框架、构建工具或生产依赖，除非用户明确要求。
 
-### 坏例子
+### 文档
 
-- `修复问题`
-- `update code`
-- `feat: 搞定了`
-- `临时提交一下`
-- `fix(ui): 修复按钮抖动` 后再附加 `Co-Authored-By: Cursor <cursor@cursor.com>`
+- [DOCS-001] 行为、命令或部署方式变化时同步 README 和相关文档，不保留过期引用。
 
-### Body（可选）
+### Shell
 
-需要时再写正文，说明动机、影响范围或破坏性变更：
+- [SHELL-001] Shell 仓库提供无网络、无副作用的语法与 shellcheck 校验，并让本地与 CI 运行同一入口。
 
-```text
-fix(auth): 修复过期 token 后无限刷新
+### 零依赖工具
 
-在 401 时先清理本地会话，再跳转登录，避免循环请求。
-```
-
-### Breaking change
-
-```text
-feat(api)!: 调整用户接口返回结构
-
-BREAKING CHANGE: `/users` 不再返回嵌套 profile 字段。
-```
-
-## 提交操作约定
-
-1. 默认只改代码，不主动提交
-2. 需要提交时：
-   - 用 Conventional Commits + 中文标题
-   - 优先用 HEREDOC 方式传 message，避免 shell 转义破坏信息
-3. 禁止添加 Co-Authored-By 或其他 AI/工具署名 trailer
-4. 禁止用 `--no-verify` 绕过校验
+- [ZERO-001] 保持零第三方运行时依赖，并提供一条无网络、无副作用的校验命令；数据源异常时明确报错停止。
+<!-- workspace-policy:end -->
