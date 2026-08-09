@@ -13,6 +13,9 @@ HOST_NAME="$(scutil --get ComputerName 2>/dev/null || hostname)"
 SAFE_HOST_NAME="$(printf '%s' "$HOST_NAME" | tr -c '[:alnum:]_.-' '-')"
 SNAPSHOT_DIR="$BACKUP_ROOT/$STAMP-$SAFE_HOST_NAME"
 SUMMARY=""
+KEYBOARD_MAESTRO_WAS_RUNNING=0
+BRAVE_WAS_RUNNING=0
+KEYBOARD_MAESTRO_QUIT_ATTEMPTED=0
 
 record_summary() {
     status="$1"
@@ -108,6 +111,7 @@ quit_keyboard_maestro() {
         return 0
     fi
 
+    KEYBOARD_MAESTRO_QUIT_ATTEMPTED=1
     if /usr/bin/pgrep -f "Keyboard Maestro Engine" &>/dev/null; then
         /usr/bin/osascript -e 'tell application "Keyboard Maestro Engine" to quit' &>/dev/null || true
     fi
@@ -122,52 +126,31 @@ quit_keyboard_maestro() {
 backup_textflash() {
     textflash_app_path="${TEXTFLASH_APP_PATH:-/Applications/TextFlash.app}"
     textflash_bin="$textflash_app_path/Contents/MacOS/TextFlash"
-    textflash_backup_script="$textflash_app_path/Contents/Resources/Tools/textflash-backup.sh"
     rel_dest_root="application-backups/TextFlash"
     dest_root="$SNAPSHOT_DIR/$rel_dest_root"
 
+    # 只支持新版应用内置 CLI；旧版会忽略参数并启动 GUI，不再兼容。
+    if [ ! -x "$textflash_bin" ] ||
+        ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export snippets" ||
+        ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export config"; then
+        echo "⚠️  跳过，TextFlash 不支持 CLI 导出（需新版应用）：$textflash_bin"
+        record_summary "SKIP" "TextFlash 数据" "应用无 CLI 导出支持"
+        return 0
+    fi
+
     mkdir -p "$dest_root"
-
-    # 新版应用内置 CLI：TextFlash export snippets|config（不启动 GUI，直接导出 JSON）。
-    # 用 strings 探测二进制是否带 CLI——旧版会忽略参数直接拉起 GUI，不能盲跑。
-    if [ -x "$textflash_bin" ] && /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export snippets"; then
-        snippets_ok=false
-        config_ok=false
-        if "$textflash_bin" export snippets -o "$dest_root/snippets.json" >/dev/null; then
-            snippets_ok=true
-        else
-            echo "⚠️  TextFlash 片段导出失败（CLI）"
-        fi
-        if "$textflash_bin" export config -o "$dest_root/config.json" >/dev/null; then
-            config_ok=true
-        else
-            echo "⚠️  TextFlash 配置导出失败（CLI）"
-        fi
-
-        if [ "$snippets_ok" = true ] && [ "$config_ok" = true ]; then
-            echo "✅ 已导出 TextFlash 片段与配置：$dest_root"
-            record_summary "DONE" "TextFlash 数据" "${rel_dest_root}（snippets.json + config.json）"
-        else
-            echo "⚠️  TextFlash 导出不完整"
-            record_summary "SKIP" "TextFlash 数据" "CLI 导出部分失败"
-        fi
-        return 0
-    fi
-
-    # 旧版无 CLI：退回应用内置备份脚本（textflash.db + preferences.plist）
-    if [ ! -x "$textflash_backup_script" ]; then
-        echo "⚠️  跳过，未找到 TextFlash 备份脚本：$textflash_backup_script"
-        record_summary "SKIP" "TextFlash 数据" "未找到应用内备份脚本"
-        return 0
-    fi
-
-    if backup_dir="$("$textflash_backup_script" "$dest_root")"; then
-        rel_backup_dir="${backup_dir#"$SNAPSHOT_DIR"/}"
-        echo "✅ 已备份 TextFlash：$backup_dir"
-        record_summary "DONE" "TextFlash 数据" "$rel_backup_dir"
+    snippets_tmp="$dest_root/snippets.json.tmp"
+    config_tmp="$dest_root/config.json.tmp"
+    if "$textflash_bin" export snippets -o "$snippets_tmp" >/dev/null &&
+        "$textflash_bin" export config -o "$config_tmp" >/dev/null; then
+        mv "$snippets_tmp" "$dest_root/snippets.json"
+        mv "$config_tmp" "$dest_root/config.json"
+        echo "✅ 已导出 TextFlash 片段与配置：$dest_root"
+        record_summary "DONE" "TextFlash 数据" "${rel_dest_root}（snippets.json + config.json）"
     else
-        echo "⚠️  TextFlash 备份失败"
-        record_summary "SKIP" "TextFlash 数据" "备份脚本执行失败"
+        rm -f "$snippets_tmp" "$config_tmp"
+        echo "⚠️  TextFlash CLI 导出失败，未保留不完整数据"
+        record_summary "SKIP" "TextFlash 数据" "CLI 导出失败"
     fi
 }
 
@@ -193,7 +176,7 @@ restart_control_center() {
     fi
 }
 
-# 备份前退出了 Keyboard Maestro 与 Brave，完成后重新打开（不在运行才打开，避免重复启动）。
+# 只重新打开备份前本就在运行、但在备份中被退出的应用。
 # 测试模式（RESET_KIT_SKIP_QUIT_APPS=1）下未退出应用，同样跳过重新打开。
 reopen_backed_up_apps() {
     if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
@@ -201,14 +184,46 @@ reopen_backed_up_apps() {
         return 0
     fi
 
-    if ! /usr/bin/pgrep -f "Keyboard Maestro" &>/dev/null; then
-        /usr/bin/open -a "Keyboard Maestro" && echo "✅ 已重新打开 Keyboard Maestro"
+    if [ "$KEYBOARD_MAESTRO_WAS_RUNNING" -eq 1 ] &&
+        ! /usr/bin/pgrep -f "Keyboard Maestro" &>/dev/null; then
+        if /usr/bin/open -a "Keyboard Maestro"; then
+            echo "✅ 已重新打开 Keyboard Maestro"
+        else
+            echo "⚠️  未能重新打开 Keyboard Maestro"
+        fi
     fi
 
-    if ! /usr/bin/pgrep -f "Brave Browser" &>/dev/null; then
-        /usr/bin/open -a "Brave Browser" && echo "✅ 已重新打开 Brave Browser"
+    if [ "$BRAVE_WAS_RUNNING" -eq 1 ] &&
+        ! /usr/bin/pgrep -f "Brave Browser" &>/dev/null; then
+        if /usr/bin/open -a "Brave Browser"; then
+            echo "✅ 已重新打开 Brave Browser"
+        else
+            echo "⚠️  未能重新打开 Brave Browser"
+        fi
     fi
+
+    return 0
 }
+
+if /usr/bin/pgrep -f "[K]eyboard Maestro" &>/dev/null; then
+    KEYBOARD_MAESTRO_WAS_RUNNING=1
+fi
+if /usr/bin/pgrep -f "[B]rave Browser" &>/dev/null; then
+    BRAVE_WAS_RUNNING=1
+fi
+
+finish_backup() {
+    status=$?
+    trap - EXIT
+    reopen_backed_up_apps
+    if [ "$KEYBOARD_MAESTRO_WAS_RUNNING" -eq 1 ] &&
+        [ "$KEYBOARD_MAESTRO_QUIT_ATTEMPTED" -eq 1 ]; then
+        restart_control_center
+    fi
+    exit "$status"
+}
+
+trap finish_backup EXIT
 
 # Brave Sync 可同步书签/扩展列表，但多数插件的本地配置（chrome.storage.local / IndexedDB）不同步。
 backup_brave_extension_configs() {
@@ -353,65 +368,32 @@ quit_app() {
 restore_textflash() {
     textflash_app_path="${TEXTFLASH_APP_PATH:-/Applications/TextFlash.app}"
     textflash_bin="$textflash_app_path/Contents/MacOS/TextFlash"
-    textflash_restore_script="$textflash_app_path/Contents/Resources/Tools/textflash-restore.sh"
     backup_root="$SNAPSHOT_DIR/application-backups/TextFlash"
 
-    if [ ! -d "$backup_root" ]; then
-        echo "⚠️  跳过，快照中不存在 TextFlash 备份"
-        record_summary "SKIP" "TextFlash 数据" "快照中不存在 TextFlash 备份"
+    if [ ! -f "$backup_root/snippets.json" ] || [ ! -f "$backup_root/config.json" ]; then
+        echo "⚠️  跳过，快照中 TextFlash JSON 备份不完整"
+        record_summary "SKIP" "TextFlash 数据" "缺少 snippets.json 或 config.json"
         return 0
     fi
 
-    # 新版快照（CLI 导出）：snippets.json + config.json，用应用 CLI 导入。
-    # 旧版 TextFlash 会忽略参数直接拉起 GUI，先探测 CLI 支持。
-    if [ -f "$backup_root/snippets.json" ]; then
-        if [ ! -x "$textflash_bin" ] || ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export snippets"; then
-            echo "⚠️  跳过，TextFlash 不支持 CLI 导入（需新版应用）：$textflash_bin"
-            record_summary "SKIP" "TextFlash 数据" "应用无 CLI 支持"
-            return 0
-        fi
-
-        quit_app "TextFlash"
-        sleep 1
-
-        ok=true
-        if ! "$textflash_bin" import snippets "$backup_root/snippets.json" >/dev/null; then
-            echo "⚠️  TextFlash 片段导入失败"
-            record_summary "SKIP" "TextFlash 片段导入" "CLI 执行失败"
-            ok=false
-        fi
-        if [ -f "$backup_root/config.json" ] && ! "$textflash_bin" import config "$backup_root/config.json" >/dev/null; then
-            echo "⚠️  TextFlash 配置导入失败"
-            record_summary "SKIP" "TextFlash 配置导入" "CLI 执行失败"
-            ok=false
-        fi
-        if [ "$ok" = true ]; then
-            echo "✅ 已恢复 TextFlash 片段与配置（CLI 导入）"
-            record_summary "DONE" "TextFlash 数据" "片段与配置（CLI 导入）"
-        fi
+    if [ ! -x "$textflash_bin" ] ||
+        ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "import snippets" ||
+        ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "import config"; then
+        echo "⚠️  跳过，TextFlash 不支持 CLI 导入（需新版应用）：$textflash_bin"
+        record_summary "SKIP" "TextFlash 数据" "应用无 CLI 支持"
         return 0
     fi
 
-    # 旧版快照（应用内置备份脚本产物）：textflash.db
-    if [ ! -x "$textflash_restore_script" ]; then
-        echo "⚠️  跳过，未找到 TextFlash 恢复脚本：$textflash_restore_script"
-        record_summary "SKIP" "TextFlash 数据" "未找到应用内恢复脚本"
-        return 0
-    fi
+    quit_app "TextFlash"
+    sleep 1
 
-    textflash_backup_dir="$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-    if [ -z "$textflash_backup_dir" ] || [ ! -f "$textflash_backup_dir/textflash.db" ]; then
-        echo "⚠️  跳过，TextFlash 备份目录不完整：$backup_root"
-        record_summary "SKIP" "TextFlash 数据" "备份目录不完整"
-        return 0
-    fi
-
-    if "$textflash_restore_script" "$textflash_backup_dir"; then
-        echo "✅ 已恢复 TextFlash：$textflash_backup_dir"
-        record_summary "DONE" "TextFlash 数据" "TextFlash 应用数据"
+    if "$textflash_bin" import snippets "$backup_root/snippets.json" >/dev/null &&
+        "$textflash_bin" import config "$backup_root/config.json" >/dev/null; then
+        echo "✅ 已恢复 TextFlash 片段与配置（CLI 导入）"
+        record_summary "DONE" "TextFlash 数据" "片段与配置（CLI 导入）"
     else
-        echo "⚠️  TextFlash 恢复失败"
-        record_summary "SKIP" "TextFlash 数据" "恢复脚本执行失败"
+        echo "⚠️  TextFlash CLI 导入失败"
+        record_summary "SKIP" "TextFlash 数据" "CLI 导入失败"
     fi
 }
 
@@ -484,6 +466,7 @@ restore_path "Git 配置" "home/.gitconfig" "$HOME/.gitconfig"
 restore_path "Zsh 配置" "home/.zshrc" "$HOME/.zshrc"
 
 quit_app "Ghostty"
+restore_path "Ghostty XDG 配置" "home/.config/ghostty" "$HOME/.config/ghostty"
 restore_path "Ghostty macOS 配置" "application-support/com.mitchellh.ghostty" "$HOME/Library/Application Support/com.mitchellh.ghostty"
 
 quit_app "CleanShot X"
@@ -535,6 +518,7 @@ echo "📦 创建离线迁移快照：$SNAPSHOT_DIR"
 copy_ssh
 copy_path "Git 配置" "$HOME/.gitconfig" "home/.gitconfig"
 copy_path "Zsh 配置" "$HOME/.zshrc" "home/.zshrc"
+copy_path "Ghostty XDG 配置" "$HOME/.config/ghostty" "home/.config/ghostty"
 copy_path "Ghostty macOS 配置" "$HOME/Library/Application Support/com.mitchellh.ghostty" "application-support/com.mitchellh.ghostty"
 
 export_defaults "CleanShot 偏好" "pl.maketheweb.cleanshotx" "preferences/pl.maketheweb.cleanshotx.plist"
@@ -571,5 +555,3 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
 done
 
 echo "✅ 备份完成：$SNAPSHOT_DIR"
-reopen_backed_up_apps
-restart_control_center
