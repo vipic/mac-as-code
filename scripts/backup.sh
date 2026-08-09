@@ -46,6 +46,41 @@ copy_path() {
     record_summary "DONE" "$label" "$rel_dest"
 }
 
+copy_ghostty_config() {
+    label="$1"
+    src="$2"
+    rel_dest="$3"
+
+    if [ ! -d "$src" ]; then
+        echo "⚠️  跳过，不存在：$src"
+        record_summary "SKIP" "$label" "不存在：$src"
+        return 0
+    fi
+
+    # Ghostty 可以在两套目录中放主配置、主题和 config-file 引用文件。
+    # 只有 .bak / .DS_Store 时不创建空的快照目录。
+    meaningful_path="$(
+        find "$src" -mindepth 1 \( -type f -o -type l \) \
+            ! -name '*.bak' \
+            ! -name '.DS_Store' \
+            -print -quit
+    )"
+    if [ -z "$meaningful_path" ]; then
+        echo "⚠️  跳过，目录中只有备份文件或无有效配置：$src"
+        record_summary "SKIP" "$label" "无有效配置（已排除 *.bak）"
+        return 0
+    fi
+
+    dest="$SNAPSHOT_DIR/$rel_dest"
+    mkdir -p "$dest"
+    /usr/bin/rsync -a \
+        --exclude '.DS_Store' \
+        --exclude '*.bak' \
+        "$src/" "$dest/"
+    echo "✅ 已备份：${src}（已排除 *.bak）"
+    record_summary "DONE" "$label" "$rel_dest"
+}
+
 copy_ssh() {
     src="$HOME/.ssh"
     rel_dest="home/.ssh"
@@ -474,7 +509,12 @@ import_defaults "CleanShot 偏好" "preferences/pl.maketheweb.cleanshotx.plist" 
 
 quit_app "Keyboard Maestro Engine"
 quit_app "Keyboard Maestro"
-restore_path "Keyboard Maestro 数据" "application-support/Keyboard Maestro" "$HOME/Library/Application Support/Keyboard Maestro"
+restore_path "Keyboard Maestro 宏" \
+    "application-support/Keyboard Maestro/Keyboard Maestro Macros.plist" \
+    "$HOME/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist"
+restore_path "Keyboard Maestro 状态栏图标" \
+    "application-support/Keyboard Maestro/Status Menu Icons" \
+    "$HOME/Library/Application Support/Keyboard Maestro/Status Menu Icons"
 import_defaults "Keyboard Maestro 偏好" "preferences/com.stairways.keyboardmaestro.plist" "com.stairways.keyboardmaestro"
 import_defaults "Keyboard Maestro Editor 偏好" "preferences/com.stairways.keyboardmaestro.editor.plist" "com.stairways.keyboardmaestro.editor"
 import_defaults "Keyboard Maestro Engine 偏好" "preferences/com.stairways.keyboardmaestro.engine.plist" "com.stairways.keyboardmaestro.engine"
@@ -518,14 +558,28 @@ echo "📦 创建离线迁移快照：$SNAPSHOT_DIR"
 copy_ssh
 copy_path "Git 配置" "$HOME/.gitconfig" "home/.gitconfig"
 copy_path "Zsh 配置" "$HOME/.zshrc" "home/.zshrc"
-copy_path "Ghostty XDG 配置" "$HOME/.config/ghostty" "home/.config/ghostty"
-copy_path "Ghostty macOS 配置" "$HOME/Library/Application Support/com.mitchellh.ghostty" "application-support/com.mitchellh.ghostty"
+copy_ghostty_config "Ghostty XDG 配置" "$HOME/.config/ghostty" "home/.config/ghostty"
+copy_ghostty_config "Ghostty macOS 配置" "$HOME/Library/Application Support/com.mitchellh.ghostty" "application-support/com.mitchellh.ghostty"
 
 export_defaults "CleanShot 偏好" "pl.maketheweb.cleanshotx" "preferences/pl.maketheweb.cleanshotx.plist"
 
 echo "⌨️  退出 Keyboard Maestro 后备份配置..."
 quit_keyboard_maestro
-copy_path "Keyboard Maestro 数据" "$HOME/Library/Application Support/Keyboard Maestro" "application-support/Keyboard Maestro"
+copy_path "Keyboard Maestro 宏" \
+    "$HOME/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist" \
+    "application-support/Keyboard Maestro/Keyboard Maestro Macros.plist"
+keyboard_maestro_icon="$(defaults read com.stairways.keyboardmaestro.engine StatusMenuIcon 2>/dev/null || true)"
+case "$keyboard_maestro_icon" in
+    ''|*/*)
+        echo "⚠️  跳过 Keyboard Maestro 状态栏图标，未找到有效的自定义图标名"
+        record_summary "SKIP" "Keyboard Maestro 状态栏图标" "未配置有效的自定义图标"
+        ;;
+    *)
+        copy_path "Keyboard Maestro 状态栏图标" \
+            "$HOME/Library/Application Support/Keyboard Maestro/Status Menu Icons/$keyboard_maestro_icon" \
+            "application-support/Keyboard Maestro/Status Menu Icons/$keyboard_maestro_icon"
+        ;;
+esac
 export_defaults "Keyboard Maestro 偏好" "com.stairways.keyboardmaestro" "preferences/com.stairways.keyboardmaestro.plist"
 export_defaults "Keyboard Maestro Editor 偏好" "com.stairways.keyboardmaestro.editor" "preferences/com.stairways.keyboardmaestro.editor.plist"
 export_defaults "Keyboard Maestro Engine 偏好" "com.stairways.keyboardmaestro.engine" "preferences/com.stairways.keyboardmaestro.engine.plist"

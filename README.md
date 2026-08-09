@@ -51,9 +51,9 @@ sh restore.sh
 
 快照含：SSH、**`.gitconfig`（含 Git 用户信息）**、`.zshrc`、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash，以及 Brave **插件本地配置**（Sync 不同步的那部分：`Local Extension Settings` + 扩展 IndexedDB）。书签/扩展列表仍靠 Brave Sync。
 
-CleanShot / Keyboard Maestro 的偏好以 plist 原样备份（恢复时直接 `defaults import`）；TextFlash 只支持新版应用自带 CLI（`TextFlash export snippets|config`），导出 `snippets.json` 与 `config.json`（配置覆盖语言/替换时序/触发模式/开机启动/Unicode 输入与排除应用），恢复时用 `TextFlash import snippets|config` 导入；旧版应用数据不再备份或恢复。Ghostty、Rime、`.gitconfig`、`.zshrc` 本身就是纯文本。
+CleanShot / Keyboard Maestro 的偏好以 plist 原样备份（恢复时直接 `defaults import`）；Keyboard Maestro 应用数据只保留主宏文件与当前偏好引用的自定义状态栏图标，不迁移剪贴板、变量、统计、历史版本、缓存与运行时数据。TextFlash 只支持新版应用自带 CLI（`TextFlash export snippets|config`），导出 `snippets.json` 与 `config.json`，恢复时用 `TextFlash import snippets|config` 导入；旧版应用数据不再备份或恢复。
 
-Ghostty 同时支持 XDG 目录 `~/.config/ghostty/` 和 macOS 专用目录 `~/Library/Application Support/com.mitchellh.ghostty/`；reset-kit 会迁移两个目录，避免遗漏实际生效的 `config.ghostty` 及它引用的其他文件。配置使用的 Maple Mono NF CN 字体由 Brewfile 安装，不进入快照。`TEXTFLASH_APP_PATH` 可指定非默认 TextFlash 路径。恢复前会保留现有文件为 `.before-restore-*`。备份会临时退出 Keyboard Maestro 与 Brave（保证数据一致），并且只重新打开备份前本就在运行的应用；即使备份中途失败也会尝试恢复应用状态。`RESET_KIT_SKIP_QUIT_APPS=1` 可跳过退出/重开（测试用）。
+Ghostty 同时支持 XDG 目录 `~/.config/ghostty/` 和 macOS 专用目录 `~/Library/Application Support/com.mitchellh.ghostty/`；reset-kit 会检查两个目录，迁移实际配置及它引用的文件，并排除 `*.bak`。某个目录只有备份文件或没有有效配置时会直接跳过。配置使用的 Maple Mono NF CN 字体由 Brewfile 安装，不进入快照。恢复前会保留现有文件为 `.before-restore-*`。备份会临时退出 Keyboard Maestro 与 Brave（保证数据一致），并且只重新打开备份前本就在运行的应用；即使备份中途失败也会尝试恢复应用状态。`RESET_KIT_SKIP_QUIT_APPS=1` 可跳过退出/重开（测试用）。
 
 ## 📝 其他
 
