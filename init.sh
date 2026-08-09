@@ -57,7 +57,16 @@ while [ "$#" -gt 0 ]; do
                 echo "❌ --from 需要指定步骤名：defaults, brew, recipe, dock"
                 exit 1
             fi
-            START_FROM="$2"
+            case "$2" in
+                defaults|brew|recipe|plugin|zsh|dock)
+                    START_FROM="$2"
+                    ;;
+                *)
+                    echo "❌ 未知的 --from 步骤：$2"
+                    echo "   可用步骤：defaults, brew, recipe, dock（plugin、zsh 为 recipe 兼容别名）"
+                    exit 1
+                    ;;
+            esac
             shift 2
             ;;
         *)
