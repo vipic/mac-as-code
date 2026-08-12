@@ -1,6 +1,16 @@
-# macOS config and applications as code
+<div align="center">
+
+# macOS as Code
+
+**无需预装第三方依赖的 macOS 装机、配置、备份与恢复工具**
+
+[快速开始](#快速开始) · [备份与恢复](#备份--恢复独立管线) · [配置说明](#其他) · [关联项目](#关联项目)
+
+</div>
 
 一键改系统设置和安装软件。新电脑不用安装依赖直接就可以进行恢复。
+
+## 快速开始
 
 | 命令 | 介绍 |
 |------|--------|
@@ -124,3 +134,8 @@ sh scripts/github_release_apps.sh
 如果最新 Release 没有 DMG，或者根据当前 CPU 架构仍不能唯一确定 DMG，安装器会停止并提示人工确认，避免选错安装包。新增同类应用只需在 `config/github_release_apps.conf` 增加一行，不需要再写 Recipe 或修改 `init.sh`。
 
 `check_format` 会校验：注解项格式、Recipe 头 id 与文件名一致、GitHub Releases 应用清单字段、Brewfile 的 `brew` / `cask` / `mas … id:` 行。
+
+## 关联项目
+
+- [Pastry](https://github.com/vipic/pastry)：macOS 剪贴板历史管理工具，可通过本仓的 GitHub Releases 应用清单安装。
+- [TextFlash](https://github.com/vipic/textflash)：macOS 菜单栏文本展开工具；除安装外，本仓还支持备份和恢复其片段与配置。
