@@ -165,7 +165,10 @@ scenario_begin "配置审计区分差异、标量命令和无法安全推导的�
 capture_audit defaults
 expect_contains "$SCENARIO_OUTPUT" "defaults write TestDomain MenuVisible -int '0'"
 expect_contains "$SCENARIO_OUTPUT" "无法自动比较"
-expect_contains "$SCENARIO_OUTPUT" "一致 2，不同 1"
+expect_contains "$SCENARIO_OUTPUT" "当前值"
+expect_contains "$SCENARIO_OUTPUT" "仓库期望"
+expect_contains "$SCENARIO_OUTPUT" "⚠ 与仓库不同"
+expect_contains "$SCENARIO_OUTPUT" "与仓库一致 2，⚠ 与仓库不同 1"
 scenario_end
 
 scenario_begin "应用审计覆盖包管理器差异和可匹配的手工安装应用"
@@ -173,8 +176,11 @@ capture_audit apps
 expect_contains "$SCENARIO_OUTPUT" "extra-formula"
 expect_contains "$SCENARIO_OUTPUT" "extra-cask"
 expect_contains "$SCENARIO_OUTPUT" "Extra Store"
-expect_contains "$SCENARIO_OUTPUT" "应用存在，但未由 Homebrew 管理"
+expect_contains "$SCENARIO_OUTPUT" "应用存在（非 Homebrew）"
 expect_contains "$SCENARIO_OUTPUT" "manual-cask"
+expect_contains "$SCENARIO_OUTPUT" "本机"
+expect_contains "$SCENARIO_OUTPUT" "仓库清单"
+expect_contains "$SCENARIO_OUTPUT" "⚠ 与仓库不同"
 expect_contains "$SANDBOX/cache/actions.tsv" "add-brewfile"
 expect_contains "$SANDBOX/cache/actions.tsv" "add-manual-cask"
 expect_not_contains "$SANDBOX/cache/actions.tsv" "adopt-cask"
@@ -189,7 +195,7 @@ scenario_begin "当天缓存保持快照，refresh 后读取最新状态"
 capture_audit defaults
 expect_contains "$SCENARIO_OUTPUT" "defaults write TestDomain MenuVisible"
 capture_audit --refresh defaults
-expect_contains "$SCENARIO_OUTPUT" "一致 3，不同 0"
+expect_contains "$SCENARIO_OUTPUT" "与仓库一致 3，⚠ 与仓库不同 0"
 expect_contains "$SCENARIO_OUTPUT" "实时查询，已更新今日缓存"
 scenario_end
 
@@ -206,7 +212,8 @@ TestDomain|Greeting|hello world
 DockDomain|Hidden|1
 EOF
 capture_audit changes
-expect_contains "$SCENARIO_OUTPUT" "已变化"
+expect_contains "$SCENARIO_OUTPUT" "初始化时"
+expect_contains "$SCENARIO_OUTPUT" "△ 初始化后变化"
 scenario_end
 
 scenario_begin "非交互 append 保持 Brewfile 不变"

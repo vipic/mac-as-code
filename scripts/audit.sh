@@ -21,7 +21,7 @@ CACHE_APPS="$CACHE_DIR/apps.out"
 CACHE_CHANGES="$CACHE_DIR/changes.out"
 CACHE_ALL="$CACHE_DIR/all.out"
 CACHE_ACTIONS="$CACHE_DIR/actions.tsv"
-CACHE_VERSION=4
+CACHE_VERSION=5
 CATALOG=""
 QUIET=0
 REFRESH=0
@@ -249,6 +249,14 @@ table_render() {
     rm -f "$table_file" "$rendered_file"
 }
 
+audit_note() {
+    note="$1"
+    printf '%s\n' "$note"
+    if [ -n "$TABLE_AGGREGATE_FILE" ]; then
+        printf '%s\n' "$note" >>"$TABLE_AGGREGATE_FILE"
+    fi
+}
+
 audit_date() {
     if [ -n "${MAC_AS_CODE_AUDIT_DATE:-}" ]; then
         printf '%s' "$MAC_AS_CODE_AUDIT_DATE"
@@ -442,7 +450,7 @@ audit_defaults() {
 
     echo "==> 系统配置与 Dock"
     echo
-    table_start "$defaults_table" "分类" "状态" "项目" "详情"
+    table_start "$defaults_table" "分类" "项目" "当前值" "仓库期望" "修复命令"
     while IFS="$(printf '\t')" read -r kind group _item_id label domain key value_type expected || [ -n "${kind:-}" ]; do
         case "${kind:-}" in
             SETTING)
@@ -464,10 +472,10 @@ audit_defaults() {
                 command_text="defaults write ${domain} ${key} -${value_type} $(print_shell_quoted "$expected")"
                 table_row "$defaults_table" \
                     "$group_label" \
-                    "不同" \
-                    "$label" \
-                    "${domain} ${key}：当前 $(print_value "$current") → 期望 $(print_value "$expected")；可用 defaults 修改"
-                table_row "$defaults_table" "$group_label" "可执行命令" "$label" "$command_text"
+                    "⚠ 与仓库不同 · $label" \
+                    "$(print_value "$current")" \
+                    "$(print_value "$expected")" \
+                    "$command_text"
                 ;;
             UNSUPPORTED)
                 unsupported_count=$((unsupported_count + 1))
@@ -475,18 +483,21 @@ audit_defaults() {
                     defaults) group_label="系统配置" ;;
                     dock) group_label="Dock" ;;
                 esac
-                table_row "$defaults_table" "$group_label" "无法自动比较" "$label" "$domain"
+                table_row "$defaults_table" \
+                    "$group_label" \
+                    "? 无法自动比较 · $label" \
+                    "—" \
+                    "—" \
+                    "$domain"
                 ;;
         esac
     done <"$CATALOG"
 
     if [ "$mismatch_count" -eq 0 ]; then
-        table_row "$defaults_table" "系统配置 / Dock" "一致" "所有可审计设置" "无需操作"
+        table_row "$defaults_table" "系统配置 / Dock" "✓ 与仓库一致" "—" "—" "无需操作"
     fi
-    table_row "$defaults_table" \
-        "系统配置 / Dock" "统计" "审计结果" \
-        "一致 ${matched_count}，不同 ${mismatch_count}，无法自动比较 ${unsupported_count}"
     table_render "$defaults_table" yes
+    audit_note "统计：与仓库一致 ${matched_count}，⚠ 与仓库不同 ${mismatch_count}，无法自动比较 ${unsupported_count}"
 }
 
 desired_contains() {
@@ -634,14 +645,14 @@ EOF
         if [ -z "$selected_cask" ]; then
             AMBIGUOUS_CASK_COUNT=$((AMBIGUOUS_CASK_COUNT + 1))
             candidate_text="$(printf '%s' "$candidates" | tr '\n' ', ' | sed 's/, $//')"
-            table_row "$apps_table_file" "应用" "无法自动对应" "$app_filename" "匹配到多个 cask：$candidate_text"
+            table_row "$apps_table_file" "? 无法自动对应" "cask" "$app_filename" "已安装" "未登记；匹配到多个 cask：$candidate_text"
             continue
         fi
         grep -Fqx "$selected_cask" "$seen_casks" && continue
         printf '%s\n' "$selected_cask" >>"$seen_casks"
         MANUAL_CASK_COUNT=$((MANUAL_CASK_COUNT + 1))
-        table_row "$apps_table_file" "应用" "可追加" "$selected_cask" \
-            "来源 cask；本机已有 ${app_filename}，不是 Homebrew 安装，Brewfile 没有"
+        table_row "$apps_table_file" "⚠ 与仓库不同" "cask" "$selected_cask" \
+            "已安装 ${app_filename}（非 Homebrew）" "未登记；可追加"
         record_action add-manual-cask cask "$selected_cask" "$app_filename"
     done <"$local_apps"
 
@@ -685,7 +696,7 @@ audit_apps() {
     echo
     echo "==> 应用与命令行工具清单"
     echo
-    table_start "$apps_table" "分类" "状态" "项目" "详情"
+    table_start "$apps_table" "状态" "来源" "项目" "本机" "仓库清单"
     if command -v mas >/dev/null 2>&1; then
         mas list >"$installed_mas" 2>/dev/null || :
     fi
@@ -710,7 +721,7 @@ audit_apps() {
                 elif command -v brew >/dev/null 2>&1 && cask_application_exists "$name"; then
                     installed=1
                     unmanaged_present=$((unmanaged_present + 1))
-                    table_row "$apps_table" "应用" "安装方式不同" "$name" "来源 cask；应用存在，但未由 Homebrew 管理"
+                    table_row "$apps_table" "⚠ 安装方式不同" "cask" "$name" "应用存在（非 Homebrew）" "已登记"
                 elif ! command -v brew >/dev/null 2>&1; then
                     unavailable=1
                 fi
@@ -729,7 +740,7 @@ audit_apps() {
             present=$((present + 1))
         else
             missing=$((missing + 1))
-            table_row "$apps_table" "应用" "缺失" "$name" "来源 ${package_type}；清单有，本机未检测到"
+            table_row "$apps_table" "⚠ 与仓库不同" "$package_type" "$name" "未检测到" "已登记"
         fi
     done <"$desired"
 
@@ -752,13 +763,13 @@ audit_apps() {
             while IFS='|' read -r package_type name || [ -n "${package_type:-}" ]; do
                 [ -n "${package_type:-}" ] || continue
                 extra=$((extra + 1))
-                table_row "$apps_table" "应用" "额外" "$name" "来源 ${package_type}；本机有，清单没有"
+                table_row "$apps_table" "⚠ 与仓库不同" "$package_type" "$name" "已安装" "未登记；可追加"
                 record_action add-brewfile "$package_type" "$name"
             done <"$extra_file"
             rm -f "$extra_file"
         done
     else
-        table_row "$apps_table" "应用" "无法比较" "Homebrew" "未安装，无法列出额外 formula/cask"
+        table_row "$apps_table" "? 无法比较" "brew / cask" "Homebrew" "未安装" "无法核对额外项"
     fi
 
     if [ -s "$installed_mas" ]; then
@@ -770,12 +781,12 @@ audit_apps() {
             )"
             if ! awk -F'|' -v wanted="$app_id" '$1 == "mas" && $3 == wanted { found = 1 } END { exit found ? 0 : 1 }' "$desired"; then
                 extra=$((extra + 1))
-                table_row "$apps_table" "应用" "额外" "$name" "来源 mas；本机有，清单没有"
+                table_row "$apps_table" "⚠ 与仓库不同" "mas" "$name" "已安装" "未登记；可追加"
                 record_action add-brewfile mas "$name" "$app_id"
             fi
         done <"$installed_mas"
     elif ! command -v mas >/dev/null 2>&1; then
-        table_row "$apps_table" "应用" "无法比较" "mas" "未安装，无法可靠列出额外 App Store 应用"
+        table_row "$apps_table" "? 无法比较" "mas" "App Store 应用" "mas 未安装" "无法可靠核对额外项"
     fi
 
     manual_cask_count=0
@@ -796,23 +807,21 @@ audit_apps() {
             present=$((present + 1))
         else
             missing=$((missing + 1))
-            table_row "$apps_table" "应用" "缺失" "$label" "来源 GitHub；清单有，本机未检测到"
+            table_row "$apps_table" "⚠ 与仓库不同" "GitHub" "$label" "未检测到" "已登记"
         fi
     done <<EOF
 $(parse_github_release_apps "$GITHUB_APPS_CONFIG")
 EOF
 
     if [ "$missing" -eq 0 ] && [ "$extra" -eq 0 ]; then
-        table_row "$apps_table" "应用" "一致" "全部已登记软件" "与当前包管理器记录一致"
+        table_row "$apps_table" "✓ 与仓库一致" "—" "全部已登记软件" "与清单一致" "无需操作"
     fi
-    if [ "$unavailable" -eq 1 ]; then
-        table_row "$apps_table" "应用" "说明" "包管理器" "缺少相应包管理器的条目按「未检测到」显示"
-    fi
-    table_row "$apps_table" "应用" "统计" "审计结果" \
-        "已登记且检测到 ${present}（非 Homebrew 管理 ${unmanaged_present}）；清单缺失 ${missing}，本机额外 ${extra}，cask 匹配待确认 ${ambiguous_cask_count}"
-    table_row "$apps_table" "应用" "范围" "额外项" \
-        "比较 Homebrew 顶层 formula、cask、mas，并匹配 /Applications 中可由 cask 管理的应用"
     table_render "$apps_table" yes
+    audit_note "统计：已登记且检测到 ${present}（非 Homebrew 管理 ${unmanaged_present}）；⚠ 清单有但本机缺失 ${missing}，⚠ 本机有但未登记 ${extra}，cask 匹配待确认 ${ambiguous_cask_count}"
+    if [ "$unavailable" -eq 1 ]; then
+        audit_note "说明：缺少相应包管理器的条目按「未检测到」显示。"
+    fi
+    audit_note "范围：比较 Homebrew 顶层 formula、cask、mas，并匹配 /Applications 中可由 cask 管理的应用。"
 
     rm -f "$desired" "$installed_mas" "$installed_casks"
 }
@@ -850,9 +859,9 @@ audit_changes() {
         echo "==> 初始化后的配置变化"
         echo
         changes_table="$(mktemp -t mac-as-code-changes-table.XXXXXX)" || return 1
-        table_start "$changes_table" "分类" "状态" "项目" "详情"
+        table_start "$changes_table" "项目" "基线状态" "下一步"
         table_row "$changes_table" \
-            "历史变化" "无基线" "初始化基线" \
+            "初始化基线" "尚未建立" \
             "下次应用配置后自动建立；也可运行 sh scripts/audit.sh snapshot"
         table_render "$changes_table" yes
         return 0
@@ -864,7 +873,7 @@ audit_changes() {
     echo "基线：$(sed -n 's/^# captured=//p' "$BASELINE_FILE" | head -n 1)"
     echo
     changes_table="$(mktemp -t mac-as-code-changes-table.XXXXXX)" || return 1
-    table_start "$changes_table" "分类" "状态" "项目" "详情"
+    table_start "$changes_table" "分类" "项目" "初始化时" "现在"
     while IFS="$(printf '\t')" read -r group label domain key value_type before || [ -n "${group:-}" ]; do
         case "${group:-}" in
             ""|\#*) continue ;;
@@ -879,19 +888,23 @@ audit_changes() {
             continue
         fi
         changed=$((changed + 1))
+        case "$group" in
+            defaults) group_label="系统配置" ;;
+            dock) group_label="Dock" ;;
+            *) group_label="$group" ;;
+        esac
         table_row "$changes_table" \
-            "历史变化" \
-            "已变化" \
-            "$label" \
-            "${domain} ${key}：初始化时 $(print_value "$before") → 现在 $(print_value "$current")；可用 defaults 修改"
+            "$group_label" \
+            "△ 初始化后变化 · $label" \
+            "$(print_value "$before")" \
+            "$(print_value "$current")"
     done <"$BASELINE_FILE"
     if [ "$changed" -eq 0 ]; then
-        table_row "$changes_table" "历史变化" "无变化" "所有可审计设置" "无需修改"
+        table_row "$changes_table" "系统配置 / Dock" "✓ 初始化后无变化" "—" "—"
     fi
-    table_row "$changes_table" "历史变化" "统计" "审计结果" "变化 ${changed}，未变化 ${unchanged}"
-    table_row "$changes_table" "历史变化" "范围" "追踪范围" \
-        "只追踪可解析的 defaults write 标量命令，不推断其他偏好"
     table_render "$changes_table" yes
+    audit_note "统计：初始化后变化 ${changed}，未变化 ${unchanged}"
+    audit_note "范围：只追踪可解析的 defaults write 标量命令，不推断其他偏好。"
 }
 
 action_label() {
