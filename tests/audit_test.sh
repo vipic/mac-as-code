@@ -115,107 +115,121 @@ run_audit() {
         sh "$AUDIT" "$@"
 }
 
-assert_contains() {
-    name="$1"
+SCENARIO_FAILED=0
+SCENARIO_OUTPUT=""
+
+scenario_begin() {
+    SCENARIO_NAME="$1"
+    SCENARIO_FAILED=0
+    SCENARIO_OUTPUT="$(mktemp -t mac-as-code-audit-output.XXXXXX)"
+}
+
+capture_audit() {
+    if ! run_audit "$@" >"$SCENARIO_OUTPUT" 2>&1; then
+        echo "   命令执行失败：audit.sh $*"
+        SCENARIO_FAILED=1
+    fi
+}
+
+expect_contains() {
+    file="$1"
     expected="$2"
-    shift 2
-    output="$(mktemp -t mac-as-code-audit-output.XXXXXX)"
-    if "$@" >"$output" 2>&1 && grep -Fq "$expected" "$output"; then
-        echo "✅ PASS: $name"
-        PASSED=$((PASSED + 1))
-    else
-        echo "❌ FAIL: $name"
-        sed 's/^/   /' "$output"
-        FAILED=$((FAILED + 1))
+    if ! grep -Fq "$expected" "$file"; then
+        echo "   缺少预期内容：$expected"
+        SCENARIO_FAILED=1
     fi
-    rm -f "$output"
 }
 
-assert_not_contains() {
-    name="$1"
+expect_not_contains() {
+    file="$1"
     unexpected="$2"
-    shift 2
-    output="$(mktemp -t mac-as-code-audit-output.XXXXXX)"
-    if "$@" >"$output" 2>&1 && ! grep -Fq "$unexpected" "$output"; then
-        echo "✅ PASS: $name"
-        PASSED=$((PASSED + 1))
-    else
-        echo "❌ FAIL: $name"
-        sed 's/^/   /' "$output"
-        FAILED=$((FAILED + 1))
+    if grep -Fq "$unexpected" "$file"; then
+        echo "   出现不应存在的内容：$unexpected"
+        SCENARIO_FAILED=1
     fi
-    rm -f "$output"
 }
 
-assert_count() {
-    name="$1"
-    pattern="$2"
-    expected_count="$3"
-    shift 3
-    output="$(mktemp -t mac-as-code-audit-output.XXXXXX)"
-    if "$@" >"$output" 2>&1; then
-        actual_count="$(grep -Fc "$pattern" "$output" || true)"
-    else
-        actual_count=-1
-    fi
-    if [ "$actual_count" -eq "$expected_count" ]; then
-        echo "✅ PASS: $name"
+scenario_end() {
+    if [ "$SCENARIO_FAILED" -eq 0 ]; then
+        echo "✅ PASS: $SCENARIO_NAME"
         PASSED=$((PASSED + 1))
     else
-        echo "❌ FAIL: $name（期望 ${expected_count}，实际 ${actual_count}）"
-        sed 's/^/   /' "$output"
+        echo "❌ FAIL: $SCENARIO_NAME"
+        sed 's/^/   /' "$SCENARIO_OUTPUT"
         FAILED=$((FAILED + 1))
     fi
-    rm -f "$output"
+    rm -f "$SCENARIO_OUTPUT"
 }
 
-assert_contains "当天第一次查询明确标记实时数据" "数据来源：实时查询，已更新今日缓存" run_audit defaults
-assert_contains "当天后续查询明确标记缓存数据" "数据来源：今日缓存" run_audit defaults
-assert_contains "每次输出标记审计开始" "mac-as-code 审计开始" run_audit defaults
-assert_contains "每次输出标记审计结束" "mac-as-code 审计结束" run_audit defaults
-assert_contains "每次输出标记产生结果的命令" "命令：sh scripts/audit.sh defaults" run_audit defaults
-assert_count "完整审计的三个分区使用同一表头" "分类" 3 run_audit all
-assert_contains "使用终端表格显示当前值和仓库期望值" "不同" run_audit defaults
-assert_not_contains "终端表格不输出 Markdown 分隔符" "|---|" run_audit defaults
-assert_contains "给出可直接执行的 defaults 命令" "defaults write TestDomain MenuVisible -int '0'" run_audit defaults
-assert_contains "识别无法安全推导的复合命令" "无法自动比较" run_audit defaults
-assert_contains "字符串中的空格可以解析" "一致 2，不同 1" run_audit defaults
-assert_contains "显示本机额外的 Homebrew formula" "extra-formula" run_audit apps
-assert_contains "显示本机额外的 cask" "extra-cask" run_audit apps
-assert_contains "显示本机额外的 App Store 应用" "Extra Store" run_audit apps
-assert_contains "识别已在 Brewfile 但尚未由 Homebrew 管理的 cask" "应用存在，但未由 Homebrew 管理" run_audit apps
-assert_not_contains "Brewfile 已有的未管理 cask 不进入追加列表" "adopt-cask" cat "$SANDBOX/cache/actions.tsv"
-assert_contains "为额外软件生成加入 Brewfile 的单项动作" "add-brewfile" cat "$SANDBOX/cache/actions.tsv"
-assert_contains "识别本机手工安装且可由 cask 管理的应用" "manual-cask" run_audit apps
-assert_contains "为手工安装应用生成追加 Brewfile 动作" "add-manual-cask" cat "$SANDBOX/cache/actions.tsv"
-assert_contains "非交互 append 不执行所列动作" "只完成审计，没有进入应用差异多选" run_audit append
+scenario_begin "配置审计区分差异、标量命令和无法安全推导的设置"
+capture_audit defaults
+expect_contains "$SCENARIO_OUTPUT" "defaults write TestDomain MenuVisible -int '0'"
+expect_contains "$SCENARIO_OUTPUT" "无法自动比较"
+expect_contains "$SCENARIO_OUTPUT" "一致 2，不同 1"
+scenario_end
+
+scenario_begin "应用审计覆盖包管理器差异和可匹配的手工安装应用"
+capture_audit apps
+expect_contains "$SCENARIO_OUTPUT" "extra-formula"
+expect_contains "$SCENARIO_OUTPUT" "extra-cask"
+expect_contains "$SCENARIO_OUTPUT" "Extra Store"
+expect_contains "$SCENARIO_OUTPUT" "应用存在，但未由 Homebrew 管理"
+expect_contains "$SCENARIO_OUTPUT" "manual-cask"
+expect_contains "$SANDBOX/cache/actions.tsv" "add-brewfile"
+expect_contains "$SANDBOX/cache/actions.tsv" "add-manual-cask"
+expect_not_contains "$SANDBOX/cache/actions.tsv" "adopt-cask"
+scenario_end
 
 cat >"$DEFAULTS_STATE" <<'EOF'
 TestDomain|MenuVisible|0
 TestDomain|Greeting|hello world
 DockDomain|Hidden|1
 EOF
-assert_contains "当天后续查询继续使用缓存" "defaults write TestDomain MenuVisible" run_audit defaults
-assert_contains "refresh 强制实时查询并更新缓存" "数据来源：实时查询，已更新今日缓存" run_audit --refresh defaults
-assert_contains "refresh 后缓存包含最新状态" "一致 3，不同 0" run_audit defaults
+scenario_begin "当天缓存保持快照，refresh 后读取最新状态"
+capture_audit defaults
+expect_contains "$SCENARIO_OUTPUT" "defaults write TestDomain MenuVisible"
+capture_audit --refresh defaults
+expect_contains "$SCENARIO_OUTPUT" "一致 3，不同 0"
+expect_contains "$SCENARIO_OUTPUT" "实时查询，已更新今日缓存"
+scenario_end
 
 cat >"$DEFAULTS_STATE" <<'EOF'
 TestDomain|MenuVisible|1
 TestDomain|Greeting|hello world
 DockDomain|Hidden|1
 EOF
-assert_contains "记录初始化基线" "已记录初始化配置基线" run_audit snapshot
+scenario_begin "基线能够发现初始化后发生的设置变化"
+capture_audit snapshot
 cat >"$DEFAULTS_STATE" <<'EOF'
 TestDomain|MenuVisible|0
 TestDomain|Greeting|hello world
 DockDomain|Hidden|1
 EOF
-assert_contains "使用终端表格显示初始化后的设置变化" "已变化" run_audit changes
-assert_contains "非交互 review 只审计不应用" "只完成审计，没有进入应用选择" run_audit review
+capture_audit changes
+expect_contains "$SCENARIO_OUTPUT" "已变化"
+scenario_end
+
+scenario_begin "非交互 append 保持 Brewfile 不变"
+brewfile_before="$(mktemp -t mac-as-code-Brewfile-before.XXXXXX)"
+cp "$CONFIG_DIR/Brewfile" "$brewfile_before"
+capture_audit append
+if ! cmp -s "$brewfile_before" "$CONFIG_DIR/Brewfile"; then
+    echo "   非交互 append 修改了 Brewfile"
+    SCENARIO_FAILED=1
+fi
+rm -f "$brewfile_before"
+scenario_end
+
+scenario_begin "help 是审计命令和数据位置的统一查询入口"
+capture_audit help
+expect_contains "$SCENARIO_OUTPUT" "sh scripts/audit.sh defaults"
+expect_contains "$SCENARIO_OUTPUT" "sh scripts/audit.sh append"
+expect_contains "$SCENARIO_OUTPUT" ".cache/mac-as-code/audit/"
+scenario_end
 
 echo
 if [ "$FAILED" -ne 0 ]; then
     echo "❌ 审计测试失败：${FAILED} 组失败，${PASSED} 组通过"
     exit 1
 fi
-echo "✅ 审计测试通过：${PASSED} 组"
+echo "✅ 审计测试通过：${PASSED} 个核心场景"

@@ -49,44 +49,15 @@ bash init.sh
 
 ## 🔎 对比当前电脑与仓库
 
-审计直接读取已有的 `defaults_config.sh`、`defaults_dock.sh`、Brewfile 和 GitHub
-Releases 清单，不维护第二套 id 或应用列表：
+用一个命令查看审计相关的完整命令清单和作用：
 
 ```shell
-sh scripts/audit.sh defaults  # 当前系统配置 / Dock 与仓库期望值
-sh scripts/audit.sh apps      # 清单缺少的软件，以及本机额外安装的软件
-sh scripts/audit.sh changes   # 初始化配置后又发生变化的可审计设置
-sh scripts/audit.sh           # 一次查看以上全部结果
-sh scripts/audit.sh append    # 用多选框选择要追加到 Brewfile 的应用
-sh scripts/audit.sh review    # 查看后进入原有多选界面，由你决定是否应用
-sh scripts/audit.sh --refresh # 强制实时查询并更新当天缓存
+sh scripts/audit.sh help
 ```
 
-配置注释中现有的 `# id | 说明` 只作为多选计划内部的稳定键；界面展示的是中文说明，
-使用审计和应用命令时都不需要记忆或输入这些 id。
-
-每天第一次运行任意审计视图时，会实时查询并同时缓存 defaults、apps、changes 三份结果；
-当天后续查询直接读取 `~/.cache/mac-as-code/audit/`，因此可以立即显示。`--refresh`
-也可写在命令后，例如 `sh scripts/audit.sh apps --refresh`。运行初始化、实际应用配置或
-重建变化基线后会自动使缓存失效，下一次查询重新读取当前电脑。
-
-`defaults` 审计支持一个设置项包含多条简单的 `defaults write`，并显示当前值和期望值。
-字典、数组、循环、`pwpolicy` 等复合操作会明确标为无法自动比较，不会猜测结果。
-
-第一次使用时还没有历史基线，因此只能比较“当前值”和“仓库期望值”。实际应用任意系统配置
-或 Dock 设置后，脚本会把当时的可审计值保存到
-`~/.local/state/mac-as-code/defaults-baseline.tsv`；以后 `changes` 就能显示这些受管理设置中
-哪些又被修改。该状态留在本机，不进入 Git。它不会扫描仓库没有声明的所有系统和应用偏好。
-
-应用差异按 Homebrew 顶层 formula、cask、mas、GitHub Releases 应用和 `/Applications` 中的
-`.app` 比较。Homebrew 依赖不会被误报为额外安装项。实时查询会读取 Homebrew 官方 cask 清单，
-把本机手工安装且能唯一对应到 cask 的应用列为可追加项目；匹配到多个 cask 时只报告候选项，
-不会让脚本猜测应该追加哪一个。
-`append` 会打开默认全部不选的终端多选框，每行说明应用的来源和差异原因；只有用空格勾选的
-项目才会处理，不需要在配置里记录编号。Brewfile 已有的项目不会进入这个列表，即使当前电脑
-不是通过 Homebrew 安装。对于本机额外的 formula、cask、App Store 应用，或审计自动识别出的手工安装 cask，可勾选后写入 Brewfile 的 `audit-added`
-区块，之后可再移动到合适分类。整个追加流程不要求手动输入应用名称或 cask 名称。
-按 Enter 确认选择后，脚本逐项实时复查并处理，未选项目保持不变；完成后审计缓存自动失效。
+审计直接读取现有配置和软件清单，不维护第二套 id。普通查询只读；每天第一次实时查询，
+之后使用当天缓存。`append` 只列出本机已有但 Brewfile 没有的软件，并且默认全部不选。
+初始化后发生的受管理设置变化由本机基线记录，缓存和基线的路径也会在帮助中显示。
 
 软件按计划 **逐个**下载安装；失败单项会记录并继续。结束打印汇总，并写入项目内 `logs/init-*.tsv`。
 

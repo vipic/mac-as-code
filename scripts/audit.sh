@@ -1,5 +1,5 @@
 #!/bin/sh
-# 只读比较当前 Mac 与仓库中的系统配置、Dock 设置和应用清单。
+# 比较当前 Mac 与仓库配置，并按用户选择补全 Brewfile。
 set -u
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -31,22 +31,33 @@ ACTIONS_FILE=""
 
 usage() {
     cat <<'EOF'
-用法：sh scripts/audit.sh [--refresh] [命令]
+用法：sh scripts/audit.sh [命令] [--refresh]
 
-命令：
-  all       比较系统配置、Dock 和应用清单（默认）
-  defaults  比较当前 defaults 值与仓库配置
-  apps      比较已安装软件与 Brewfile / GitHub Releases 清单
-  changes   查看自最近一次初始化配置后发生变化的可审计设置
-  snapshot  将当前可审计设置记录为初始化基线
-  append    显示全部差异，用多选框选择要追加到 Brewfile 的应用
-  review    先显示全部差异，再进入 init.sh 多选界面决定是否应用
+查询（不修改电脑或仓库）
+  sh scripts/audit.sh             查看配置、应用和初始化后变化
+  sh scripts/audit.sh defaults    比较 macOS / Dock 设置与仓库期望值
+  sh scripts/audit.sh apps        比较本机软件与 Brewfile / GitHub 清单
+  sh scripts/audit.sh changes     查看初始化后又被修改的受管理设置
 
-选项：
-  -r, --refresh  忽略当天缓存，实时查询并更新全部审计缓存
+处理
+  sh scripts/audit.sh append      多选本机已有、Brewfile 没有的软件并追加
+  sh scripts/audit.sh review      审计后进入 init.sh，选择要应用的配置和软件
 
-当天第一次查询会实时生成完整缓存，之后直接读取。普通审计是只读操作；
-append 仅处理你在多选框中勾选的项目，snapshot 只写入状态目录。
+维护（通常由脚本自动执行）
+  sh scripts/audit.sh snapshot    将当前受管理设置保存为变化基线
+
+查询帮助
+  sh scripts/audit.sh help        显示这份命令清单
+
+通用选项
+  -r, --refresh                   忽略当天缓存，实时查询并更新缓存
+
+数据位置
+  当天缓存  ~/.cache/mac-as-code/audit/
+  变化基线  ~/.local/state/mac-as-code/defaults-baseline.tsv
+
+说明：当天第一次查询实时生成缓存，之后立即读取；append 默认全部不选，
+只追加你勾选且 Brewfile 尚未登记的软件。
 EOF
 }
 
@@ -1161,7 +1172,7 @@ while [ "$#" -gt 0 ]; do
             usage
             exit 0
             ;;
-        all|defaults|apps|changes|append|review|snapshot|invalidate)
+        defaults|apps|changes|append|review|snapshot|invalidate)
             if [ "$COMMAND_SET" -eq 1 ]; then
                 echo "❌ 只能指定一个审计命令" >&2
                 usage
