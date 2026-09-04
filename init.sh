@@ -289,6 +289,9 @@ maybe_run_brew
 maybe_run_recipes
 maybe_run_type "dock" "dock" "🖥️  配置 Dock..." "$CONFIG_DIR/defaults_dock.sh"
 
+# 软件或设置可能已经变化，使当天的审计结果失效。
+sh "$SCRIPTS_DIR/audit.sh" invalidate --quiet || true
+
 print_results_summary "$MAC_AS_CODE_RESULTS"
 summary_status=$?
 persist_results_log "$MAC_AS_CODE_RESULTS" "init" "$ROOT_DIR"

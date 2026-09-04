@@ -22,6 +22,7 @@ jobs:
           bash -n ./scripts/*.sh
           bash -n ./config/*.sh
           bash -n ./config/recipes/*.sh
+          bash -n ./tests/*.sh
           bash -n ./tests/fixtures/*.sh
 
       - name: Install ShellCheck
@@ -34,7 +35,11 @@ jobs:
             ./scripts/*.sh \
             ./config/*.sh \
             ./config/recipes/*.sh \
+            ./tests/*.sh \
             ./tests/fixtures/*.sh
 
       - name: Check config format
         run: sh scripts/check_format.sh --self-test
+
+      - name: Test audit
+        run: sh tests/audit_test.sh

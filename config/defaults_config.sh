@@ -27,6 +27,8 @@ echo "🔧 按勾选项应用系统设置..."
 run_annotated_shell_items defaults "$0"
 
 if [ "${_annotated_applied:-0}" -gt 0 ]; then
+    sh "$ROOT_DIR/scripts/audit.sh" snapshot --quiet || \
+        echo "⚠️  无法记录本次系统配置基线，changes 审计将继续使用旧基线"
     echo "🔄 重启 Finder 以应用设置..."
     killall Finder 2>/dev/null || true
 else

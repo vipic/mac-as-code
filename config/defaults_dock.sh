@@ -26,6 +26,8 @@ echo "🖥️  按勾选项应用 Dock 设置..."
 run_annotated_shell_items dock "$0"
 
 if [ "${_annotated_applied:-0}" -gt 0 ]; then
+    sh "$ROOT_DIR/scripts/audit.sh" snapshot --quiet || \
+        echo "⚠️  无法记录本次 Dock 配置基线，changes 审计将继续使用旧基线"
     echo "🔄 重启 Dock 以应用设置..."
     killall Dock 2>/dev/null || true
 else

@@ -605,14 +605,19 @@ checkbox_select_step() {
     title="$1"
     types="$2"
     plan="$3"
+    selection_hint="${4:-（默认已全选，可取消不需要的项）}"
     cursor=1
     total=0
     key=""
+    audit_label_width=0
 
     total="$(plan_count_types "$plan" "$types")"
     if [ "$total" -eq 0 ]; then
         echo "ℹ️  ${title}：无可选项，跳过"
         return 0
+    fi
+    if [ "$types" = "audit" ]; then
+        audit_label_width="$(awk -F'|' '$2 == "audit" { if (length($4) > width) width = length($4) } END { print width + 0 }' "$plan")"
     fi
 
     _UI_STTY_SAVE="$(stty -g)"
@@ -624,7 +629,7 @@ checkbox_select_step() {
     while true; do
         # 一帧内容用一次 awk 生成，避免循环里反复清屏/fork 造成闪烁
         frame="$(
-            awk -F'|' -v types="$types" -v cursor="$cursor" -v title="$title" -v total="$total" '
+            awk -F'|' -v types="$types" -v cursor="$cursor" -v title="$title" -v total="$total" -v selection_hint="$selection_hint" -v audit_label_width="$audit_label_width" '
                 BEGIN {
                     OFS = ""
                     n = split(types, arr, "|")
@@ -633,7 +638,7 @@ checkbox_select_step() {
                     idx = 0
                     print "======== " title " ========"
                     print "↑↓ 移动   空格 选中/取消   a 全选   n 全不选   Enter 确认   q 退出"
-                    print "（默认已全选，可取消不需要的项）"
+                    print selection_hint
                     print ""
                 }
                 want[$2] {
@@ -654,6 +659,8 @@ checkbox_select_step() {
                         label = (extra != "") ? extra : name
                     } else if (type == "github-release") {
                         label = "[GitHub] " ((extra != "") ? extra : name)
+                    } else if (type == "audit") {
+                        label = sprintf("%-*s — %s", audit_label_width, extra, $5)
                     } else if (type == "brew") {
                         label = "[brew] " name
                     } else if (type == "cask") {
