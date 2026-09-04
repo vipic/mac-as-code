@@ -21,7 +21,7 @@ CACHE_APPS="$CACHE_DIR/apps.out"
 CACHE_CHANGES="$CACHE_DIR/changes.out"
 CACHE_ALL="$CACHE_DIR/all.out"
 CACHE_ACTIONS="$CACHE_DIR/actions.tsv"
-CACHE_VERSION=2
+CACHE_VERSION=4
 CATALOG=""
 QUIET=0
 REFRESH=0
@@ -234,10 +234,13 @@ table_render() {
     table_file="$1"
     aggregate="${2:-no}"
     rendered_file="$(mktemp -t mac-as-code-rendered-table.XXXXXX)" || return 1
-    if [ "$aggregate" = "yes" ] && [ -n "$TABLE_AGGREGATE_FILE" ]; then
-        cat "$table_file" >>"$TABLE_AGGREGATE_FILE"
-    fi
     if table_render_to_file "$table_file" "$rendered_file"; then
+        if [ "$aggregate" = "yes" ] && [ -n "$TABLE_AGGREGATE_FILE" ]; then
+            if [ -s "$TABLE_AGGREGATE_FILE" ]; then
+                horizontal_rule '-' >>"$TABLE_AGGREGATE_FILE"
+            fi
+            cat "$rendered_file" >>"$TABLE_AGGREGATE_FILE"
+        fi
         cat "$rendered_file"
     else
         rm -f "$rendered_file"
@@ -307,7 +310,7 @@ refresh_cache() {
     if ! audit_defaults >"$defaults_temp" ||
         ! audit_apps >"$apps_temp" ||
         ! audit_changes >"$changes_temp" ||
-        ! table_render_to_file "$aggregate_temp" "$all_temp"; then
+        ! cp "$aggregate_temp" "$all_temp"; then
         TABLE_AGGREGATE_FILE=""
         ACTIONS_FILE=""
         rm -f "$defaults_temp" "$apps_temp" "$changes_temp" "$all_temp" "$actions_temp" "$aggregate_temp" "$stamp_temp"
