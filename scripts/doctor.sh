@@ -8,14 +8,7 @@ FAILED=0
 MODE="all"
 
 usage() {
-    cat <<'EOF'
-用法：sh scripts/doctor.sh [--pre|--post|--all]
-      bash scripts/doctor.sh 亦可
-
-  --pre   装机前硬门槛（CLT、git 可用性、Brewfile）；init.sh 开头调用
-  --post  装机后验收（brew / mas / Oh My Zsh）；可手动排查时用
-  --all   全部检查（默认；单独排查时用）
-EOF
+    echo "内部环境检查模块；请运行 sh mac.sh，选择检查环境。"
 }
 
 while [ "$#" -gt 0 ]; do

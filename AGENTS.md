@@ -4,9 +4,9 @@
 
 ## 项目约定
 
-- 保持零第三方运行时依赖，不引入 mise、Python 包、Node 工具链或 jq；入口继续使用 `sh init.sh`。
+- 保持零第三方运行时依赖，不引入 mise、Python 包、Node 工具链或 jq；日常唯一入口使用 `sh mac.sh`，任务从菜单选择。
 - `config/` 是声明式清单，`scripts/` 是实现；系统设置与 Dock 项维持“注释 + 命令”格式，Recipe 的文件名与头部 id 必须一致。
-- 日常配置改动运行 `sh scripts/check_format.sh`；修改校验器时运行 `sh scripts/check_format.sh --self-test`。
+- 修改后运行 `sh mac.sh --check`，包含格式自测；内部脚本不作为日常命令入口。
 - 提交前按 CI 口径运行全部 shell 的 `bash -n`、`shellcheck -x -P SCRIPTDIR` 与格式自测。
 - 备份内容可能包含 SSH、Git 用户信息和应用配置，不得把 reset-kit、日志或个人快照提交到仓库。
 - 安装数据源异常、资产不唯一或签名校验失败时明确停止，不得静默选择错误包或生成误导性结果。

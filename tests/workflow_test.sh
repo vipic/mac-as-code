@@ -99,15 +99,15 @@ sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/plan" "$SANDBOX/details"
 [ ! -d "$SANDBOX/cache" ] || fail '生成计划不应写入审计缓存'
 pass '计划始终读取实时状态'
 
-for task in '' configure backup restore; do
+for task in '' configure backup restore doctor check --yes --from --skip-doctor; do
     # task 为受控的单词或空串。
     # shellcheck disable=SC2086
-    if sh "$ROOT_DIR/init.sh" $task </dev/null >"$SANDBOX/out" 2>&1; then
+    if sh "$ROOT_DIR/mac.sh" $task </dev/null >"$SANDBOX/out" 2>&1; then
         fail "非交互 $task 未拒绝隐式执行"
     fi
 done
-sh "$ROOT_DIR/init.sh" --help >"$SANDBOX/out"
-grep -q 'restore' "$SANDBOX/out" || fail '帮助缺少恢复入口'
+sh "$ROOT_DIR/mac.sh" --help >"$SANDBOX/out"
+grep -q '恢复' "$SANDBOX/out" || fail '帮助缺少恢复入口'
 [ ! -d "$HOME/Desktop" ] || fail '打开入口或帮助创建了备份'
 pass '非交互入口与帮助无执行副作用'
 
@@ -127,18 +127,17 @@ awk '/^RESTORE_SCRIPT$/ {inside=0} inside {print} /cat >.*RESTORE_SCRIPT/ {insid
 [ -s "$SANDBOX/snapshot/restore.sh" ] || fail '恢复模板未提取'
 bash -n "$SANDBOX/snapshot/restore.sh"
 if bash "$SANDBOX/snapshot/restore.sh" </dev/null >"$SANDBOX/out" 2>&1; then fail '独立恢复隐式执行'; fi
-if bash "$SANDBOX/snapshot/restore.sh" --yes >"$SANDBOX/out" 2>&1; then fail '独立恢复接受无校验快照'; fi
-if sh "$ROOT_DIR/init.sh" restore --yes "$SANDBOX/snapshot" >"$SANDBOX/out" 2>&1; then fail '恢复入口接受无校验快照'; fi
+if MAC_AS_CODE_RESTORE_CONFIRMED=1 bash "$SANDBOX/snapshot/restore.sh" >"$SANDBOX/out" 2>&1; then fail '独立恢复接受无校验快照'; fi
 printf 'invalid\n' >"$SANDBOX/snapshot/SHA256SUMS"
-if sh "$ROOT_DIR/init.sh" restore --yes "$SANDBOX/snapshot" >"$SANDBOX/out" 2>&1; then fail '恢复入口接受损坏快照'; fi
-pass '独立恢复与统一入口拒绝缺失或损坏的校验数据'
+if MAC_AS_CODE_RESTORE_CONFIRMED=1 bash "$SANDBOX/snapshot/restore.sh" >"$SANDBOX/out" 2>&1; then fail '独立恢复接受损坏快照'; fi
+pass '独立恢复拒绝缺失或损坏的校验数据'
 
 
 
 # 实际执行器使用隔离的仓库与命令，验证只应用计划项和失败重试。
 mkdir -p "$SANDBOX/repo/config/recipes"
 cp -R "$ROOT_DIR/scripts" "$SANDBOX/repo/scripts"
-cp "$ROOT_DIR/init.sh" "$SANDBOX/repo/init.sh"
+cp "$ROOT_DIR/mac.sh" "$SANDBOX/repo/mac.sh"
 awk '/^# menu-bar-visible / {exit} {print}' "$ROOT_DIR/config/defaults_config.sh" >"$SANDBOX/repo/config/defaults_config.sh"
 cat >>"$SANDBOX/repo/config/defaults_config.sh" <<'EOF'
 # first | 第一个设置
@@ -177,7 +176,7 @@ export MAC_AS_CODE_DOCK_CONFIG="$SANDBOX/repo/config/defaults_dock.sh"
 export MAC_AS_CODE_BREWFILE="$SANDBOX/repo/config/Brewfile"
 export MAC_AS_CODE_GITHUB_APPS_CONFIG="$SANDBOX/repo/config/github_release_apps.conf"
 printf 'ON|defaults|first|第一个设置\nON|defaults|fail|失败的设置\nOFF|defaults|untouched|未选择设置\n' >"$SANDBOX/input.plan"
-if MAC_AS_CODE_INPUT_PLAN="$SANDBOX/input.plan" sh "$SANDBOX/repo/scripts/apply.sh" --yes >"$SANDBOX/out" 2>&1; then
+if MAC_AS_CODE_INPUT_PLAN="$SANDBOX/input.plan" sh "$SANDBOX/repo/scripts/apply.sh" >"$SANDBOX/out" 2>&1; then
     cat "$SANDBOX/out"
     fail '部分失败应返回非零'
 fi
@@ -188,7 +187,7 @@ grep -qx Fail "$TEST_WRITES" || fail '未尝试第二个设置'
 grep -q '^ON|defaults|fail|' "$SANDBOX/state/retry.plan" || fail '重试计划缺失失败项'
 pass '执行器仅应用选中项，并只记录失败项供重试'
 
-# 确认后复核发现变化时，自动模式停止，不能执行过期计划。
+# 确认后复核发现变化时必须重新确认，不能执行过期计划。
 cat >"$SANDBOX/repo/scripts/plan.sh" <<'EOF'
 #!/bin/sh
 set -eu
@@ -205,9 +204,238 @@ touch "$TEST_EXECUTED"
 EOF
 export TEST_SCAN_COUNT="$SANDBOX/scans"
 export TEST_EXECUTED="$SANDBOX/executed"
-if sh "$SANDBOX/repo/init.sh" configure --yes >"$SANDBOX/out" 2>&1; then fail '复核变化时没有停止'; fi
-[ ! -f "$TEST_EXECUTED" ] || fail '执行了过期计划'
-grep -q '状态已变化' "$SANDBOX/out" || fail '没有说明复核失败原因'
-pass '确认后状态变化时停止自动执行'
+export TEST_REPO="$SANDBOX/repo"
+export TEST_SNAPSHOT="$SANDBOX/snapshot"
+# 所有可执行任务替换为哨兵；实际导航、复核、多选与校验逻辑保持不变。
+for helper in backup doctor; do
+    # shellcheck disable=SC2016 # 哨兵运行时读取隔离路径。
+    printf '#!/bin/sh\ntouch "$TEST_EXECUTED"\n' >"$SANDBOX/repo/scripts/$helper.sh"
+done
+cat >"$SANDBOX/repo/scripts/append-test.sh" <<'EOF'
+#!/bin/sh
+MAC_AS_CODE_AUDIT_LIBRARY=1
+export MAC_AS_CODE_AUDIT_LIBRARY
+# shellcheck source=audit.sh
+. "$(dirname "$0")/audit.sh"
+print_cached_result() { :; }
+build_append_plan() { printf 'OFF|audit|1|测试软件\n' >"$1"; }
+CACHE_ACTIONS="$(mktemp -t mac-as-code-ui-actions.XXXXXX)"
+trap 'rm -f "$CACHE_ACTIONS"' EXIT
+printf 'invalid\tcask\tdemo\tDemo.app\n' >"$CACHE_ACTIONS"
+append_selected_items
+EOF
+command -v expect >/dev/null 2>&1 || fail '缺少 macOS 自带的 Expect'
+export TEST_UI_HELPERS="$ROOT_DIR/tests/terminal_helpers.exp"
+cat >"$SANDBOX/repo/launch-test.sh" <<'EOF'
+#!/bin/sh
+# macOS 的 PENDIN（0x20000000）是内核瞬时状态，比较时屏蔽它。
+tty_signature() {
+    tty_value="$(stty -g)"
+    tty_lflag="${tty_value#*:lflag=}"
+    tty_lflag="${tty_lflag%%:*}"
+    tty_normal="$(printf '%x' "$((0x$tty_lflag & ~0x20000000))")"
+    printf '%s\n' "$tty_value" | sed "s/lflag=$tty_lflag:/lflag=$tty_normal:/"
+}
+tty_before="$(tty_signature)"
+sh "$(dirname "$0")/mac.sh"
+status=$?
+[ "$(tty_signature)" = "$tty_before" ] || { echo "TTY_CHANGED: $tty_before / $(tty_signature)"; exit 99; }
+echo TTY_RESTORED
+exit "$status"
+EOF
+expect <<'EOF'
+source $env(TEST_UI_HELPERS)
+spawn sh "$env(TEST_REPO)/launch-test.sh"
+see {\x1b\[2J}
+page "今天想做什么"
+key "0"
+page "今天想做什么"
+move_without_clear "\033\[B" "备份这台 Mac"
+move_without_clear "\033\[A" "配置这台 Mac"
+choose 1 ""
+page "配置这台 Mac"
+choose 2 "调整选择"
+page "调整范围"
+choose 1 ""
+page "调整本次操作"
+see "Enter 保存"
+key b
+page "调整范围"
+key b
+page "配置这台 Mac"
+choose 3 "查看详情"
+page "差异详情"
+key b
+page "配置这台 Mac"
+choose 1 ""
+page "确认应用以上项目"
+key b
+page "配置这台 Mac"
+choose 1 ""
+page "确认应用以上项目"
+key y
+page "计划已更新"
+key b
+page "配置这台 Mac"
+key b
+page "今天想做什么"
+choose 2 "备份这台 Mac"
+page "备份位置"
+choose 1 ""
+page "开始备份"
+key b
+page "备份位置"
+key b
+page "今天想做什么"
+choose 3 "从备份恢复"
+page "选择快照"
+choose 1 ""
+page "输入快照路径"
+file delete "$env(TEST_SNAPSHOT)/SHA256SUMS"
+key "$env(TEST_SNAPSHOT)\r"
+page "无法恢复"
+key b
+page "选择快照"
+choose 1 ""
+page "输入快照路径"
+set sums [open "$env(TEST_SNAPSHOT)/SHA256SUMS" w]
+puts $sums "invalid"
+close $sums
+key "$env(TEST_SNAPSHOT)\r"
+page "无法恢复"
+key b
+page "选择快照"
+choose 1 ""
+page "输入快照路径"
+set data [open "$env(TEST_SNAPSHOT)/data" w]
+puts $data "test"
+close $data
+set sums [open "$env(TEST_SNAPSHOT)/SHA256SUMS" w]
+puts $sums "[lindex [exec shasum -a 256 "$env(TEST_SNAPSHOT)/data"] 0]  data"
+close $sums
+key "$env(TEST_SNAPSHOT)\r"
+page "恢复方式"
+choose 1 ""
+page "确认恢复上述个人数据"
+key b
+page "恢复方式"
+key b
+page "选择快照"
+key b
+page "今天想做什么"
+key q
+see TTY_RESTORED
+done
 
+spawn sh "$env(TEST_REPO)/scripts/append-test.sh"
+page "选择要处理的应用差异"
+see "Enter 保存"
+key " "
+page "选择要处理的应用差异"
+see "Enter 保存"
+key "\r"
+page "确认写入配置清单"
+key b
+page "选择要处理的应用差异"
+see "Enter 保存"
+key "\r"
+see "追加 1 个软件条目"
+see "q 退出"
+key b
+page "选择要处理的应用差异"
+see "Enter 保存"
+key b
+done
+
+# 确认后展示逐项结果；非法测试动作只报错，不操作真实清单。
+spawn sh "$env(TEST_REPO)/scripts/append-test.sh"
+page "选择要处理的应用差异"
+see "Enter 保存"
+key " "
+page "选择要处理的应用差异"
+see "Enter 保存"
+key "\r"
+page "确认写入配置清单"
+key y
+see "清单更新结果"
+see "失败.*cask.*demo"
+see "q 退出"
+key q
+done 2
+
+spawn sh "$env(TEST_REPO)/launch-test.sh"
+stty rows 16 columns 48 < $spawn_out(slave,name)
+page "今天想做什么"
+choose 1 ""
+page "配置这台 Mac"
+choose 2 "调整选择"
+page "调整范围"
+choose 1 ""
+page "调整本次操作"
+see "Enter 保存"
+key q
+see TTY_RESTORED
+done
+EOF
+[ ! -f "$TEST_EXECUTED" ] || fail '取消或状态变化时执行了操作'
+pass '方向键单选、即时返回退出、清屏页脚、窄窗口和终端恢复'
+
+export TEST_BACKUP_DEST="$SANDBOX/backup-destination"
+cat >"$SANDBOX/repo/scripts/backup.sh" <<'EOF'
+#!/bin/sh
+[ "${MAC_AS_CODE_BACKUP_CONFIRMED:-0}" = 1 ] || exit 99
+printf '%s\n' "$1" >"$TEST_BACKUP_DEST"
+echo '测试备份完成'
+EOF
+cat >"$SANDBOX/snapshot/restore.sh" <<'EOF'
+#!/bin/sh
+[ "${MAC_AS_CODE_RESTORE_CONFIRMED:-0}" = 1 ] || exit 99
+touch "$TEST_EXECUTED"
+echo '测试恢复完成'
+EOF
+expect <<'EOF'
+source $env(TEST_UI_HELPERS)
+spawn sh "$env(TEST_REPO)/launch-test.sh"
+page "今天想做什么"
+choose 2 "备份这台 Mac"
+page "备份位置"
+choose 2 "输入其他目录"
+page "输入备份根目录"
+key "$env(TEST_SNAPSHOT)/custom bq 备份误\177\r"
+page "开始备份"
+key "\r"
+see "测试备份完成"
+see "q 退出"
+key b
+page "今天想做什么"
+choose 3 "从备份恢复"
+page "选择快照"
+choose 1 ""
+page "输入快照路径"
+key "$env(TEST_SNAPSHOT)\r"
+page "恢复方式"
+choose 1 ""
+page "确认恢复上述个人数据"
+key "\r"
+see "测试恢复完成"
+see "q 退出"
+key q
+see TTY_RESTORED
+done
+
+spawn sh "$env(TEST_REPO)/launch-test.sh"
+page "今天想做什么"
+choose 2 "备份这台 Mac"
+page "备份位置"
+choose 2 "输入其他目录"
+page "输入备份根目录"
+key "/tmp/bq"
+see "Ctrl.Q 退出"
+key "\021"
+see TTY_RESTORED
+done
+EOF
+[ "$(cat "$TEST_BACKUP_DEST")" = "$SANDBOX/snapshot/custom bq 备份" ] || fail '自定义备份目录传递错误'
+[ -f "$TEST_EXECUTED" ] || fail '确认后没有调度快照恢复脚本'
+pass 'Enter 确认调度任务，路径支持空格、中文和 b/q，编辑时可即时退出'
 echo "工作流测试通过。"

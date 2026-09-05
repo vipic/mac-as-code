@@ -4,41 +4,10 @@ set -u
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPTS_DIR/common.sh"
-TASK="${1:-menu}"
-[ "$#" -eq 0 ] || shift
-if [ "$TASK" = legacy ]; then
-    # 兼容旧参数；交互模式仍有全量计划的最后确认。
-    if [ -t 0 ]; then
-        printf '旧参数将进入全量装机（含重置布局等设置）。继续？[y/N] '
-        read -r answer || exit 1
-        case "$answer" in y|Y) ;; *) exit 0 ;; esac
-    fi
-    exec sh "$SCRIPTS_DIR/apply.sh" --yes "$@"
+if [ "$#" -ne 0 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
+    echo "请在交互终端运行 sh mac.sh，从菜单选择任务。" >&2
+    exit 1
 fi
-YES_MODE=0
-TARGET_PATH=""
-for argument do
-    case "$argument" in
-        --yes|-y) YES_MODE=1 ;;
-        -*) echo "未知参数：$argument" >&2; exit 1 ;;
-        *)
-            [ -z "$TARGET_PATH" ] || { echo "只能指定一个目录。" >&2; exit 1; }
-            TARGET_PATH="$argument"
-            ;;
-    esac
-done
-case "$TASK" in
-    configure|menu) [ -z "$TARGET_PATH" ] || { echo "此任务不接受目录参数。" >&2; exit 1; } ;;
-esac
-if [ ! -t 0 ] || [ ! -t 1 ]; then
-    [ "$YES_MODE" -eq 1 ] && [ "$TASK" != menu ] || {
-        echo "请在交互终端运行 sh init.sh；自动执行请指定任务和 --yes。" >&2
-        exit 1
-    }
-fi
-MAC_AS_CODE_INTERACTIVE=0
-[ "$YES_MODE" -ne 0 ] || MAC_AS_CODE_INTERACTIVE=1
-export MAC_AS_CODE_INTERACTIVE
 WORK_DIR="$(mktemp -d -t mac-as-code-workflow.XXXXXX)" || exit 1
 trap 'ui_restore_tty; rm -rf "$WORK_DIR"' EXIT
 trap 'exit 130' INT
@@ -47,26 +16,77 @@ FLOW_PLAN="$WORK_DIR/selected.plan"
 FLOW_DETAILS="$WORK_DIR/details.tsv"
 RETRY_PLAN="${MAC_AS_CODE_STATE_DIR:-$HOME/.local/state/mac-as-code}/retry.plan"
 
-ask() {
-    echo "b 返回"
-    echo "q 退出程序"
-    printf '%s > ' "$1"
-    read -r answer || return 1
-    case "$answer" in
-        b|B) answer=0 ;;
-        q|Q) exit 0 ;;
+# 将 UI 的返回码统一映射到工作流；q 无需回车，退出整个程序。
+menu() {
+    ui_select "$@"
+    input_status=$?
+    case "$input_status" in
+        1|2) exit 0 ;;
+        3) answer=b ;;
+    esac
+}
+confirm() {
+    confirm_action "$@"
+    input_status=$?
+    case "$input_status" in
+        1|2) exit 0 ;;
+        *) return "$input_status" ;;
+    esac
+}
+notice() {
+    ui_document "$1" "$2"
+    input_status=$?
+    [ "$input_status" -ne 2 ] || exit 0
+}
+wait_back() {
+    ui_enter || return 1
+    ui_size
+    printf '\033[%s;1H\033[90mb 返回主菜单 · q 退出\033[0m' "$((UI_ROWS - 1))"
+    while true; do
+        input_key="$(ui_read_key)"
+        case "$input_key" in
+            back) ui_leave; return 0 ;;
+            quit|eof) ui_leave; exit 0 ;;
+        esac
+    done
+}
+path_input() {
+    ui_path "$1" "$2"
+    input_status=$?
+    case "$input_status" in
+        1|2) exit 0 ;;
+        3) return 3 ;;
     esac
 }
 
+adjust_selection() {
+    while true; do
+        menu "调整范围" "选择要调整的类别" back "全部" "软件 / 环境" "系统设置" "Dock"
+        case "$answer" in
+            b) return 0 ;;
+            1) selection_types='defaults|dock|brew|cask|mas|recipe|github-release' ;;
+            2) selection_types='brew|cask|mas|recipe|github-release' ;;
+            3) selection_types=defaults ;;
+            4) selection_types=dock ;;
+            *) echo "请选择范围编号。"; continue ;;
+        esac
+        export MAC_AS_CODE_UI_DETAILS="$FLOW_DETAILS"
+        checkbox_select_step "调整本次操作" "$selection_types" "$FLOW_PLAN" 'Enter 保存选择，返回配置菜单'
+        result=$?
+        case "$result" in
+            0) return 0 ;;
+            2) exit 0 ;;
+            3) continue ;;
+            *) return "$result" ;;
+        esac
+    done
+}
+
 show_details() {
-    awk -F '\t' '
-        $3 != "met" { print "\n" $4; print "  " $5 }
-    ' "$FLOW_DETAILS"
+    notice "差异详情" "$(awk -F '\t' '$3 != "met" { print $4; print "  " $5; print "" }' "$FLOW_DETAILS")"
 }
 
 show_summary() {
-    echo
-    echo "配置这台 Mac · 实时检测"
     awk -F '\t' '
         $3 == "met" { met++; next }
         $3 == "manual" { manual++; next }
@@ -74,8 +94,8 @@ show_summary() {
         $1 == "dock" { dock++; next }
         { apps++ }
         END {
-            printf "  软件 / 环境  缺少 %d 项\n  系统设置     不同 %d 项\n  Dock         不同 %d 项\n", apps, settings, dock
-            printf "  需明确选择   %d 项\n  已满足       %d 项（已折叠）\n", manual, met
+            printf "软件缺少 %d · 系统差异 %d · Dock 差异 %d\n", apps, settings, dock
+            printf "待确认 %d · 已满足 %d（已折叠）\n", manual, met
         }
     ' "$FLOW_DETAILS"
     selected_count="$(awk -F '|' '$1 == "ON" { n++ } END { print n+0 }' "$FLOW_PLAN")"
@@ -91,47 +111,19 @@ merge_selection() {
 }
 
 configure() {
-    echo "正在检测设置和软件…"
+    ui_execution "检测这台 Mac" "正在读取当前设置与软件状态…"
     sh "$SCRIPTS_DIR/plan.sh" "$FLOW_PLAN" "$FLOW_DETAILS" || return 1
     while true; do
-        show_summary
-        if [ "$YES_MODE" -eq 1 ]; then
-            answer=1
-        else
-            echo "1 应用已选项"
-            echo "2 调整选择"
-            echo "3 查看详情"
-            echo "4 将本机软件加入配置清单"
-            echo "5 重试上次失败项"
-            echo "0 返回"
-            ask "选择" || return 1
-        fi
+        summary_text="$(show_summary)"
+        selected_count="$(awk -F '|' '$1 == "ON" { n++ } END { print n+0 }' "$FLOW_PLAN")"
+        menu "配置这台 Mac" "$summary_text" back \
+            "应用已选项" "调整选择" "查看详情" "将本机软件加入配置清单" "重试上次失败项"
         case "$answer" in
-            0|'') return 0 ;;
-            2)
-                echo "调整范围："
-                echo "1 全部（默认）"
-                echo "2 软件 / 环境"
-                echo "3 系统设置"
-                echo "4 Dock"
-                echo "0 返回"
-                ask "范围" || return 1
-                case "$answer" in
-                    ''|1) selection_types='defaults|dock|brew|cask|mas|recipe|github-release' ;;
-                    2) selection_types='brew|cask|mas|recipe|github-release' ;;
-                    3) selection_types=defaults ;;
-                    4) selection_types=dock ;;
-                    *) continue ;;
-                esac
-                export MAC_AS_CODE_UI_DETAILS="$FLOW_DETAILS"
-                checkbox_select_step "调整本次操作" "$selection_types" "$FLOW_PLAN" '确认选择后返回配置菜单，不会立即执行' || {
-                    result=$?
-                    [ "$result" -ne 2 ] || exit 0
-                    [ "$result" -eq 3 ] || return 0
-                }
-                ;;
+            b) return 0 ;;
+            2) adjust_selection || return $? ;;
             3) show_details ;;
             4)
+                ui_execution "检测本机软件"
                 sh "$SCRIPTS_DIR/audit.sh" append --refresh || {
                     result=$?
                     [ "$result" -ne 2 ] || exit 0
@@ -143,78 +135,93 @@ configure() {
                 ;;
             5)
                 if [ ! -s "$RETRY_PLAN" ]; then
-                    echo "没有记录的失败项。"
+                    notice "重试失败项" "没有记录的失败项。"
                 else
                     cp "$RETRY_PLAN" "$FLOW_PLAN"
                     sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/fresh.plan" "$WORK_DIR/fresh.tsv" || return 1
                     merge_selection
                     cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
-                    echo "已选中仍未完成的失败项；可查看详情后应用。"
+                    notice "重试失败项" "已选中仍未完成的失败项；可查看详情后应用。"
                 fi
                 ;;
             1)
-                [ "$selected_count" -gt 0 ] || { echo "没有需要执行的已选项。"; [ "$YES_MODE" -eq 0 ] || return 0; continue; }
-                echo
-                echo "将执行："
-                awk -F '|' '$1 == "ON" { label = ($2 == "brew" || $2 == "cask" || $2 == "mas") ? $3 : $4; print "  - " label }' "$FLOW_PLAN"
-                echo "设置可能重启 Finder / Dock；安装软件可能需要管理员授权或 App Store 登录。"
-                if [ "$YES_MODE" -eq 0 ]; then
-                    ask "确认应用以上项目？[y/N]" || return 1
-                    case "$answer" in y|Y) ;; *) continue ;; esac
-                fi
-                echo "正在复核当前状态…"
+                [ "$selected_count" -gt 0 ] || { notice "应用已选项" "没有需要执行的已选项。"; continue; }
+                apply_preview="$(awk -F '|' '$1 == "ON" { label = ($2 == "brew" || $2 == "cask" || $2 == "mas") ? $3 : $4; print "  - " label }' "$FLOW_PLAN")"
+                confirm "确认应用以上项目？" "$apply_preview
+设置可能重启 Finder / Dock；软件安装可能需要管理员授权或 App Store 登录。" || continue
+                ui_execution "复核操作计划" "正在复核当前状态…"
                 sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/fresh.plan" "$WORK_DIR/fresh.tsv" || return 1
                 if ! cmp -s "$FLOW_DETAILS" "$WORK_DIR/fresh.tsv"; then
                     merge_selection
                     cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
-                    echo "状态已变化，已更新计划，请重新检查。"
-                    [ "$YES_MODE" -eq 0 ] || return 1
+                    notice "计划已更新" "状态已变化，已更新计划，请重新检查。"
                     continue
                 fi
-                MAC_AS_CODE_INPUT_PLAN="$FLOW_PLAN" sh "$SCRIPTS_DIR/apply.sh" --yes
+                ui_execution "应用配置"
+                MAC_AS_CODE_INPUT_PLAN="$FLOW_PLAN" sh "$SCRIPTS_DIR/apply.sh"
                 result=$?
                 [ "$result" -ne 2 ] || exit 0
                 if [ "$result" -eq 3 ]; then continue; fi
+                wait_back
                 return "$result"
                 ;;
-            *) echo "请选择菜单中的编号。" ;;
+            *) echo "请选择任务编号，或 q 退出。" ;;
         esac
     done
 }
 
 backup() {
-    backup_root="${TARGET_PATH:-$HOME/Desktop/backup/reset-kit}"
-    echo "备份位置：${backup_root}（自动新建带时间的快照目录）"
-    echo "范围：SSH、Git、Zsh、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash、Brave 插件本地配置。"
-    echo "备份时会临时退出 Keyboard Maestro 和 Brave，结束后恢复原先运行状态。"
-    if [ "$YES_MODE" -eq 0 ]; then
-        ask "开始备份？[y/N]" || return 1
-        case "$answer" in y|Y) ;; *) return 0 ;; esac
-    fi
-    MAC_AS_CODE_BACKUP_CONFIRMED=1 bash "$SCRIPTS_DIR/backup.sh" "$backup_root"
+    while true; do
+        menu "备份位置" "默认目录：$HOME/Desktop/backup/reset-kit" back \
+            "使用默认目录" "输入其他目录"
+        case "$answer" in
+            b) return 0 ;;
+            1) backup_root="$HOME/Desktop/backup/reset-kit" ;;
+            2)
+                path_input "输入备份根目录" "请输入完整路径，支持包含空格的目录。" || continue
+                [ -n "$answer" ] || continue
+                backup_root="$answer" ;;
+        esac
+        confirm "开始备份？" "将在 $backup_root 新建带时间的快照。
+范围：SSH、Git、Zsh、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash、Brave 插件配置。
+会临时退出 Keyboard Maestro 和 Brave，结束后尝试恢复原先运行状态。" || continue
+        ui_execution "备份这台 Mac"
+        MAC_AS_CODE_BACKUP_CONFIRMED=1 bash "$SCRIPTS_DIR/backup.sh" "$backup_root"
+        result=$?
+        wait_back
+        return "$result"
+    done
 }
 
 choose_snapshot() {
-    [ -z "$TARGET_PATH" ] || return 0
-    [ "$YES_MODE" -eq 0 ] || { echo "自动恢复必须指定快照目录。" >&2; return 1; }
-    echo "可用快照（默认备份目录）："
-    : >"$WORK_DIR/snapshots"
-    for snapshot in "$HOME/Desktop/backup/reset-kit/"*; do
-        [ -f "$snapshot/restore.sh" ] || continue
-        printf '%s\n' "$snapshot" >>"$WORK_DIR/snapshots"
+    while true; do
+        : >"$WORK_DIR/snapshots"
+        set --
+        for snapshot in "$HOME/Desktop/backup/reset-kit/"*; do
+            [ -f "$snapshot/restore.sh" ] || continue
+            printf '%s\n' "$snapshot" >>"$WORK_DIR/snapshots"
+            set -- "$@" "$(basename "$snapshot")"
+        done
+        snapshot_count=$#
+        set -- "$@" "输入其他快照路径"
+        menu "选择快照" "默认备份目录中的快照；外置盘可输入完整路径。" back "$@"
+        [ "$answer" != b ] || return 3
+        if [ "$answer" -le "$snapshot_count" ]; then
+            TARGET_PATH="$(awk -v n="$answer" 'NR == n { print; exit }' "$WORK_DIR/snapshots")"
+        else
+            path_input "输入快照路径" "请输入含 restore.sh 的完整快照目录。" || continue
+            TARGET_PATH="$answer"
+        fi
+        if [ -d "$TARGET_PATH" ] && [ -f "$TARGET_PATH/restore.sh" ]; then
+            TARGET_PATH="$(cd "$TARGET_PATH" && pwd)"
+            return 0
+        fi
+        notice "未找到快照" "该目录无效或缺少 restore.sh，请重新选择。"
     done
-    awk '{ print NR "  " $0 }' "$WORK_DIR/snapshots"
-    ask "输入编号或快照目录（0 返回）" || return 1
-    case "$answer" in
-        ''|0) return 2 ;;
-        *[!0-9]*) TARGET_PATH="$answer" ;;
-        *) TARGET_PATH="$(sed -n "${answer}p" "$WORK_DIR/snapshots")" ;;
-    esac
-    [ -n "$TARGET_PATH" ] || { echo "未找到该快照。" >&2; return 1; }
 }
 
 restore_apps() {
-    echo "正在生成恢复所需的软件计划…"
+    ui_execution "检测恢复所需软件"
     sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/restore-full.plan" "$FLOW_DETAILS" || return 1
     : >"$WORK_DIR/needed"
     [ ! -d "$TARGET_PATH/home/.config/ghostty" ] && [ ! -d "$TARGET_PATH/application-support/com.mitchellh.ghostty" ] || printf '%s\n' ghostty font-maple-mono-normal-nf-cn >>"$WORK_DIR/needed"
@@ -231,75 +238,72 @@ restore_apps() {
         echo "快照对应的软件已满足，或未发现需要安装的清单项。"
         return 0
     fi
-    echo "将先安装："
-    awk -F '|' '{ print "  - " $3 }' "$FLOW_PLAN"
-    ask "安装这些软件后继续恢复？[y/N]" || return 1
-    case "$answer" in y|Y) ;; *) return 2 ;; esac
-    MAC_AS_CODE_INPUT_PLAN="$FLOW_PLAN" sh "$SCRIPTS_DIR/apply.sh" --yes
+    restore_preview="$(awk -F '|' '{ print "  - " $3 }' "$FLOW_PLAN")"
+    confirm "安装这些软件后继续恢复？" "$restore_preview" || return $?
+    ui_execution "安装恢复所需软件"
+    MAC_AS_CODE_INPUT_PLAN="$FLOW_PLAN" sh "$SCRIPTS_DIR/apply.sh"
     result=$?
     [ "$result" -ne 2 ] || exit 0
-    [ "$result" -ne 3 ] || return 2
     return "$result"
 }
 
 restore() {
-    choose_snapshot || { result=$?; [ "$result" -eq 2 ] && return 0; return "$result"; }
-    if [ ! -d "$TARGET_PATH" ] || [ ! -f "$TARGET_PATH/restore.sh" ]; then
-        echo "不是有效的快照目录：$TARGET_PATH" >&2
-        return 1
-    fi
-    TARGET_PATH="$(cd "$TARGET_PATH" && pwd)"
-    echo "恢复来源：$TARGET_PATH"
-    if [ -f "$TARGET_PATH/metadata/manifest.txt" ]; then
-        sed -n '1,5p' "$TARGET_PATH/metadata/manifest.txt"
-    fi
-    if [ -f "$TARGET_PATH/metadata/summary.tsv" ]; then
-        awk -F '\t' '$1 == "DONE" { print "  - " $2 }' "$TARGET_PATH/metadata/summary.tsv"
-    fi
-    [ -s "$TARGET_PATH/SHA256SUMS" ] || { echo "缺少完整性校验文件，停止恢复。" >&2; return 1; }
-    echo "正在校验快照完整性…"
-    (cd "$TARGET_PATH" && shasum -a 256 -c SHA256SUMS >/dev/null) || return 1
-    echo "现有文件会先保留为 .before-restore-*；恢复可能退出相关应用。"
-    if [ "$YES_MODE" -eq 0 ]; then
-        echo "1 直接恢复"
-        echo "2 先安装快照所需软件，再恢复"
-        echo "0 返回"
-        ask "选择" || return 1
-        case "$answer" in
-            1) ;;
-            2)
-                restore_apps || {
+    while true; do
+        choose_snapshot || return 0
+        snapshot_preview="$(
+            printf '恢复来源：%s\n' "$TARGET_PATH"
+            [ ! -f "$TARGET_PATH/metadata/manifest.txt" ] || sed -n '1,5p' "$TARGET_PATH/metadata/manifest.txt"
+            [ ! -f "$TARGET_PATH/metadata/summary.tsv" ] || awk -F '\t' '$1 == "DONE" { print "  - " $2 }' "$TARGET_PATH/metadata/summary.tsv"
+        )"
+        if [ ! -s "$TARGET_PATH/SHA256SUMS" ]; then
+            notice "无法恢复" "缺少完整性校验文件，请重新选择快照。"
+            continue
+        fi
+        ui_execution "校验快照"
+        if ! (cd "$TARGET_PATH" && shasum -a 256 -c SHA256SUMS >/dev/null); then
+            notice "无法恢复" "校验失败，未执行恢复。"
+            continue
+        fi
+        while true; do
+            menu "恢复方式" "$TARGET_PATH" back "直接恢复" "先安装快照所需软件，再恢复"
+            case "$answer" in
+                b) break ;;
+                1) ;;
+                2)
+                    restore_apps
                     result=$?
-                    [ "$result" -ne 2 ] || return 0
-                    return "$result"
-                }
-                ;;
-            *) return 0 ;;
-        esac
-        ask "确认恢复上述个人数据？[y/N]" || return 1
-        case "$answer" in y|Y) ;; *) return 0 ;; esac
-    fi
-    MAC_AS_CODE_RESTORE_CONFIRMED=1 bash "$TARGET_PATH/restore.sh"
+                    if [ "$result" -ne 0 ]; then
+                        [ "$result" -eq 3 ] || notice "安装未完成" "安装未全部完成，未继续恢复。"
+                        continue
+                    fi
+                    ;;
+                *) echo "请选择恢复方式。"; continue ;;
+            esac
+            confirm "确认恢复上述个人数据？" "$snapshot_preview
+将保留被覆盖的文件 / 偏好副本；TextFlash 使用 CLI 导入。恢复会退出相关应用。" || continue
+            ui_execution "恢复个人数据"
+            MAC_AS_CODE_RESTORE_CONFIRMED=1 bash "$TARGET_PATH/restore.sh"
+            result=$?
+            wait_back
+            return "$result"
+        done
+    done
 }
 
-if [ "$TASK" != menu ]; then
-    "$TASK"
-    exit $?
-fi
+printf '\033[2J\033[H'
 while true; do
-    echo
-    echo "mac-as-code"
-    echo "1 配置这台 Mac    查看差异、安装软件、应用设置"
-    echo "2 备份这台 Mac    保存个人配置和应用数据"
-    echo "3 从备份恢复      选择快照，恢复个人数据"
-    echo "0 退出"
-    ask "选择" || exit 0
+    menu "今天想做什么？" "" root \
+        "配置这台 Mac       查看差异、安装软件、应用设置" \
+        "备份这台 Mac       保存个人配置和应用数据" \
+        "从备份恢复         恢复个人数据" \
+        "检查环境           查看工具与安装状态"
     TARGET_PATH=""
     case "$answer" in
-        1) configure || echo "配置未全部完成，请查看上方提示。" ;;
-        2) backup || echo "备份未完成，请查看上方提示。" ;;
-        3) restore || echo "恢复未完成，请查看上方提示。" ;;
-        0|'') exit 0 ;;
-        *) echo "请选择菜单中的编号。" ;;
+        1) configure || notice "配置未完成" "请查看执行结果，处理失败后可重试。" ;;
+        2) backup || notice "备份未完成" "请查看执行结果，确认未备份项目。" ;;
+        3) restore || notice "恢复未完成" "请查看执行结果，确认未恢复项目。" ;;
+        4)
+            environment_report="$(sh "$SCRIPTS_DIR/doctor.sh" 2>&1)"
+            notice "环境检查" "$environment_report" ;;
     esac
 done

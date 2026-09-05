@@ -1,26 +1,11 @@
 #!/bin/bash
 set -eu
 
-case "${1:-}" in
-    -h|--help)
-        echo "用法：sh init.sh backup [目录]（自动执行加 --yes）"
-        exit 0
-        ;;
-esac
-if [ "$#" -gt 1 ]; then
-    echo "用法：bash scripts/backup.sh [备份目录]"
-    echo "默认备份目录：$HOME/Desktop/backup/reset-kit"
+if [ "$#" -gt 1 ] || [ "${MAC_AS_CODE_BACKUP_CONFIRMED:-0}" != 1 ]; then
+    echo "请运行 sh mac.sh，从菜单选择备份。" >&2
     exit 1
 fi
-
 BACKUP_ROOT="${1:-$HOME/Desktop/backup/reset-kit}"
-if [ "${MAC_AS_CODE_BACKUP_CONFIRMED:-0}" != 1 ]; then
-    [ -t 0 ] || { echo "自动备份请运行 sh init.sh backup --yes [目录]。" >&2; exit 1; }
-    echo "将备份个人配置到 $BACKUP_ROOT，并临时退出 Keyboard Maestro 和 Brave。"
-    printf '开始备份？[y/N] '
-    read -r answer || exit 1
-    case "$answer" in y|Y) ;; *) exit 0 ;; esac
-fi
 STAMP="$(date +%Y%m%d-%H%M%S)"
 HOST_NAME="$(scutil --get ComputerName 2>/dev/null || hostname)"
 SAFE_HOST_NAME="$(printf '%s' "$HOST_NAME" | tr -c '[:alnum:]_.-' '-')"
@@ -331,8 +316,7 @@ write_restore_script() {
 set -eu
 
 case "${1:-}" in
-    -h|--help) echo "用法：sh restore.sh [--yes]；会先校验快照并保留现有文件"; exit 0 ;;
-    --yes) MAC_AS_CODE_RESTORE_CONFIRMED=1; shift ;;
+    --help) echo "用法：sh restore.sh；会先校验快照并保留现有文件"; exit 0 ;;
 esac
 if [ "$#" -gt 0 ]; then
     echo "用法：bash restore.sh"
@@ -496,11 +480,27 @@ restore_brave_extension_configs() {
 }
 
 if [ "${MAC_AS_CODE_RESTORE_CONFIRMED:-0}" != 1 ]; then
-    [ -t 0 ] || { echo "自动恢复必须显式指定 --yes。" >&2; exit 1; }
+    [ -t 0 ] || { echo "请在交互终端运行 sh restore.sh。" >&2; exit 1; }
+    printf '\033[2J\033[H\033[1;36mmac-as-code · 快照恢复\033[0m\n\033[90m让每一台 Mac，都回到你的习惯。\033[0m\n\n'
     echo "将从 $SNAPSHOT_DIR 恢复个人数据，保留现有文件为 .before-restore-*，并退出相关应用。"
-    printf '确认恢复？[y/N] '
-    read -r answer || exit 1
-    case "$answer" in y|Y) ;; *) exit 0 ;; esac
+    restore_tty="$(stty -g)"
+    trap 'stty "$restore_tty" 2>/dev/null || true; printf "\033[0m\033[?25h"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    stty -echo -icanon -ixon min 1 time 0
+    printf '\033[90mEnter / y 确认恢复 · q 退出（直接按键）\033[0m\n'
+    while true; do
+        answer="$(dd bs=1 count=1 2>/dev/null; printf '.')"
+        answer="${answer%.}"
+        case "$answer" in
+            y|Y|"$(printf '\r')"|'
+') break ;;
+            q|Q) exit 0 ;;
+            ''|"$(printf '\004')") exit 1 ;;
+        esac
+    done
+    stty "$restore_tty"
+    trap - EXIT INT TERM
 fi
 [ -s "$SNAPSHOT_DIR/SHA256SUMS" ] || { echo "缺少或空的完整性校验文件，停止恢复。" >&2; exit 1; }
 # 校验快照完整性
@@ -645,4 +645,4 @@ done
 
 printf '%s' "$SUMMARY" | awk -F '\t' '$1 == "DONE" { done++ } $1 == "SKIP" { skip++ } END { printf "备份结束：完成 %d，未备份 %d；未备份项目见上方。\n", done, skip }'
 echo "快照位置：$SNAPSHOT_DIR"
-echo "请将整个快照目录拷到外置盘；新机运行 sh init.sh，选择从备份恢复。"
+echo "请将整个快照目录拷到外置盘；新机运行 sh mac.sh，选择从备份恢复。"

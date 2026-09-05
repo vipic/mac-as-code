@@ -30,35 +30,7 @@ TABLE_AGGREGATE_FILE=""
 ACTIONS_FILE=""
 
 usage() {
-    cat <<'EOF'
-用法：sh scripts/audit.sh [命令] [--refresh]
-
-查询（不修改电脑或仓库）
-  sh scripts/audit.sh             查看配置、应用和初始化后变化
-  sh scripts/audit.sh defaults    比较 macOS / Dock 设置与仓库期望值
-  sh scripts/audit.sh apps        比较本机软件与 Brewfile / GitHub 清单
-  sh scripts/audit.sh changes     查看初始化后又被修改的受管理设置
-
-处理
-  sh scripts/audit.sh append      多选本机已有、Brewfile 没有的软件并追加
-  sh scripts/audit.sh review      实时查看差异并选择应用到电脑
-
-维护（通常由脚本自动执行）
-  sh scripts/audit.sh snapshot    将当前受管理设置保存为变化基线
-
-查询帮助
-  sh scripts/audit.sh help        显示这份命令清单
-
-通用选项
-  -r, --refresh                   忽略当天缓存，实时查询并更新缓存
-
-数据位置
-  当天缓存  ~/.cache/mac-as-code/audit/
-  变化基线  ~/.local/state/mac-as-code/defaults-baseline.tsv
-
-说明：当天第一次查询实时生成缓存，之后立即读取；append 默认全部不选，
-只追加你勾选且 Brewfile 尚未登记的软件。
-EOF
+    echo "内部检测模块；请运行 sh mac.sh，从菜单查看差异或将本机软件加入清单。"
 }
 
 cleanup() {
@@ -391,16 +363,6 @@ view_label() {
     esac
 }
 
-display_command() {
-    printf 'sh scripts/audit.sh'
-    if [ "$COMMAND" != "all" ]; then
-        printf ' %s' "$COMMAND"
-    fi
-    if [ "$REFRESH" -eq 1 ]; then
-        printf ' --refresh'
-    fi
-}
-
 print_run_header() {
     view="$1"
     generated_at="$(awk -F'\t' 'NR == 1 { print $2 }' "$CACHE_STAMP")"
@@ -412,7 +374,6 @@ print_run_header() {
     echo
     horizontal_rule '='
     echo "mac-as-code 审计开始"
-    echo "命令：$(display_command)"
     echo "视图：$(view_label "$view")"
     echo "数据来源：${source_label}"
     echo "审计时间：${generated_at}"
@@ -875,7 +836,7 @@ audit_changes() {
         table_start "$changes_table" "项目" "基线状态" "下一步"
         table_row "$changes_table" \
             "初始化基线" "尚未建立" \
-            "下次应用配置后自动建立；也可运行 sh scripts/audit.sh snapshot"
+            "下次应用配置后自动建立"
         table_render "$changes_table" yes
         return 0
     fi
@@ -1015,7 +976,7 @@ append_brewfile_entry() {
         {
             echo
             echo '# audit-added:start'
-            echo '# 通过 audit.sh append 确认加入；可按用途移动到上方分类。'
+            echo '# 通过配置菜单确认加入；可按用途移动到上方分类。'
             printf '%s\n' "$entry"
             echo '# audit-added:end'
         } >>"$edited"
@@ -1066,11 +1027,11 @@ execute_append_action() {
             ;;
         add-manual-cask)
             if ! command -v brew >/dev/null 2>&1 || ! brew info --cask "$name" >/dev/null 2>&1; then
-                echo "❌ Homebrew 已无法找到 cask：$name，请重新审计" >&2
+                echo "❌ Homebrew 已无法找到 cask：${name}，请重新审计" >&2
                 return 1
             fi
             if [ ! -d "$APPLICATIONS_DIR/$metadata" ]; then
-                echo "❌ 本机已找不到 $metadata，请重新审计" >&2
+                echo "❌ 本机已找不到 ${metadata}，请重新审计" >&2
                 return 1
             fi
             if brewfile_entry_exists cask "$name"; then
@@ -1087,8 +1048,8 @@ execute_append_action() {
 }
 
 append_selected_items() {
-    print_cached_result all
     if [ ! -t 0 ]; then
+        print_cached_result all
         echo
         echo "ℹ️  当前不是交互终端；只完成审计，没有进入应用差异多选。"
         return 0
@@ -1098,39 +1059,35 @@ append_selected_items() {
         rm -f "$selection_plan"
         return 1
     }
-    checkbox_select_step \
-        "选择要处理的应用差异" \
-        "audit" \
-        "$selection_plan" \
-        "（默认全部不选；只处理你用空格勾选的项目）"
-    selection_status=$?
-    if [ "$selection_status" -eq 2 ] || [ "$selection_status" -eq 3 ]; then
-        rm -f "$selection_plan"
-        [ "$selection_status" -ne 2 ] || return 2
-        return 0
-    fi
-    if [ "$selection_status" -ne 0 ]; then
-        rm -f "$selection_plan"
-        return "$selection_status"
-    fi
-
-    selected_count="$(awk -F'|' '$1 == "ON" { count++ } END { print count + 0 }' "$selection_plan")"
-    if [ "$selected_count" -eq 0 ]; then
-        rm -f "$selection_plan"
-        echo "ℹ️  没有选中任何项目，电脑和 Brewfile 均未修改。"
-        return 0
-    fi
-
-    echo "将向 Brewfile 追加 ${selected_count} 个软件条目，不安装或卸载软件。"
-    echo 'b 返回（取消写入）'
-    echo 'q 退出程序'
-    printf '确认写入配置清单？[y/N] '
-    read -r answer || { rm -f "$selection_plan"; return 1; }
-    case "$answer" in
-        y|Y) ;;
-        q|Q) rm -f "$selection_plan"; return 2 ;;
-        *) rm -f "$selection_plan"; return 0 ;;
-    esac
+    while true; do
+        checkbox_select_step \
+            "选择要处理的应用差异" "audit" "$selection_plan" \
+            "（默认全部不选；Enter 进入写入确认）"
+        selection_status=$?
+        case "$selection_status" in
+            0) ;;
+            3) rm -f "$selection_plan"; return 0 ;;
+            *) rm -f "$selection_plan"; return "$selection_status" ;;
+        esac
+        selected_count="$(awk -F'|' '$1 == "ON" { count++ } END { print count + 0 }' "$selection_plan")"
+        if [ "$selected_count" -eq 0 ]; then
+            rm -f "$selection_plan"
+            ui_document "没有选中项目" "电脑和 Brewfile 均未修改。"
+            selection_status=$?
+            [ "$selection_status" -ne 2 ] || return 2
+            return 0
+        fi
+        append_preview="$(awk -F '|' '$1 == "ON" { print "  - " $4 }' "$selection_plan")"
+        confirm_action "确认写入配置清单？" "将向 Brewfile 追加 ${selected_count} 个软件条目，不安装或卸载软件。
+$append_preview"
+        selection_status=$?
+        case "$selection_status" in
+            0) break ;;
+            3) continue ;;
+            *) rm -f "$selection_plan"; return "$selection_status" ;;
+        esac
+    done
+    ui_execution "更新配置清单"
     result_table="$(mktemp -t mac-as-code-audit-results.XXXXXX)" || {
         rm -f "$selection_plan"
         return 1
@@ -1149,7 +1106,7 @@ append_selected_items() {
 $selected
 EOF
         echo
-        echo "==> 处理：$name（$(action_label "$action_type")）"
+        echo "==> 处理：${name}（$(action_label "$action_type")）"
         if execute_append_action "$action_type" "$package_type" "$name" "$metadata"; then
             success_count=$((success_count + 1))
             table_row "$result_table" "成功" "$package_type" "$name" "$(action_label "$action_type")"
@@ -1168,16 +1125,17 @@ EOF
     fi
     echo
     echo "处理结果："
+    append_result_text="$(awk -F '\t' '{ print $1 " · " $2 " · " $3 " · " $4 }' "$result_table")"
     table_render "$result_table"
     echo "已选择 ${selected_count} 项：成功 ${success_count}，失败 ${failure_count}。"
     if [ "$success_count" -gt 0 ]; then
         echo "审计缓存已失效，下次查询会实时验证结果。"
     fi
+    ui_document "清单更新结果" "已选择 ${selected_count} 项：成功 ${success_count}，失败 ${failure_count}。
+$append_result_text"
+    selection_status=$?
+    [ "$selection_status" -ne 2 ] || return 2
     [ "$failure_count" -eq 0 ]
-}
-
-review_and_apply() {
-    exec sh "$ROOT_DIR/init.sh" configure
 }
 
 # 只读计划生成器仅复用函数，不进入审计 CLI。
@@ -1191,7 +1149,7 @@ while [ "$#" -gt 0 ]; do
         -r|--refresh) REFRESH=1 ;;
         --quiet) QUIET=1 ;;
         -h|--help|help) usage; exit 0 ;;
-        defaults|apps|changes|append|review|snapshot|invalidate)
+        defaults|apps|changes|append|snapshot|invalidate)
             [ "$COMMAND_SET" -eq 0 ] || { echo "只能指定一个审计命令。" >&2; exit 1; }
             COMMAND="$1"
             COMMAND_SET=1
@@ -1209,7 +1167,6 @@ esac
 trap cleanup EXIT HUP INT TERM
 case "$COMMAND" in
     all|defaults|apps|changes) ensure_cache || exit 1; print_cached_result "$COMMAND" ;;
-    review) review_and_apply ;;
     append) REFRESH=1; ensure_cache || exit 1; append_selected_items ;;
     snapshot)
         build_catalog || exit 1

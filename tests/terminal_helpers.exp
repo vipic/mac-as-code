@@ -1,0 +1,44 @@
+set timeout 10
+log_user 0
+if {[info exists env(UI_TEST_VERBOSE)]} { log_user 1 }
+proc see {pattern} {
+    global spawn_id
+    # macOS Expect 的 -exact 匹配中文可能崩溃，使用正则匹配。
+    expect {
+        -re $pattern {}
+        timeout { puts stderr "交互等待超时：$pattern"; exit 1 }
+        eof { puts stderr "交互提前结束：$pattern\n$expect_out(buffer)"; exit 1 }
+    }
+}
+proc page {title} {
+    see $title
+    # 导航必须位于定位后的灰色页脚，不能混在正文输入提示里。
+    see {\x1b\[[0-9]+;1H\x1b\[90m(b 返回 · )?q 退出}
+}
+proc choose {index label} {
+    global spawn_id
+    for {set i 1} {$i < $index} {incr i} { send -- "\033\[B" }
+    if {$index > 1} { see "› $label"; see "q 退出" }
+    send -- "\r"
+}
+proc key {value} { global spawn_id; send -- $value }
+proc move_without_clear {direction label} {
+    global spawn_id
+    send -- $direction
+    expect {
+        -re {\x1b\[[0-3]?J|\x1b\[r} { puts stderr "移动光标时清屏或重置了滚动区域"; exit 1 }
+        -re "› $label" {}
+        timeout { puts stderr "光标未移动到：$label"; exit 1 }
+        eof { puts stderr "移动光标时提前退出"; exit 1 }
+    }
+    see "q 退出"
+}
+proc done {{expected 0}} {
+    global spawn_id
+    expect {
+        eof {}
+        timeout { puts stderr "程序未退出"; exit 1 }
+    }
+    set result [wait]
+    if {[lindex $result 3] != $expected} { puts stderr "退出异常：$result"; exit 1 }
+}

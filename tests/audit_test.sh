@@ -227,11 +227,9 @@ fi
 rm -f "$brewfile_before"
 scenario_end
 
-scenario_begin "help 是审计命令和数据位置的统一查询入口"
+scenario_begin "内部帮助指向唯一入口"
 capture_audit help
-expect_contains "$SCENARIO_OUTPUT" "sh scripts/audit.sh defaults"
-expect_contains "$SCENARIO_OUTPUT" "sh scripts/audit.sh append"
-expect_contains "$SCENARIO_OUTPUT" ".cache/mac-as-code/audit/"
+expect_contains "$SCENARIO_OUTPUT" "sh mac.sh"
 scenario_end
 
 echo

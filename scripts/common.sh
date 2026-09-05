@@ -1,6 +1,6 @@
 #!/bin/sh
 # 共用辅助函数：结果记录、Brewfile 解析、分步多选 UI。
-# 由 init.sh 与 scripts/ 下脚本以 `.` 加载，不要直接执行。
+# 由执行器 apply.sh 与 scripts/ 下脚本以 `.` 加载，不要直接执行。
 # 兼容 sh 与 bash（避免 bash 独有语法）。
 
 # 新安装的 Homebrew 无需重新打开终端也能被后续任务发现。
@@ -14,7 +14,7 @@ if ! command -v brew >/dev/null 2>&1; then
     done
 fi
 
-# 初始化结果文件。若由 init.sh 导出 MAC_AS_CODE_RESULTS，则复用（不清空）；否则自建。
+# 初始化结果文件。若由执行器 apply.sh 导出 MAC_AS_CODE_RESULTS，则复用（不清空）；否则自建。
 init_results() {
     if [ -z "${MAC_AS_CODE_RESULTS:-}" ]; then
         MAC_AS_CODE_RESULTS="$(mktemp -t mac-as-code.XXXXXX)"
@@ -479,150 +479,329 @@ plan_toggle_nth_of_types() {
     rm -f "$tmp"
 }
 
-# ---------- 终端多选 UI：↑↓ 移动，空格切换，Enter 确认 ----------
-
+# ---------- 共用终端界面：顶部说明 / 操作区 / 灰色页脚 ----------
 _UI_STTY_SAVE=""
+_UI_SAVED_TRAPS=""
 
-ui_restore_tty() {
-    # 恢复光标显示，再还原终端属性
-    [ ! -t 1 ] || printf '\033[?25h' 2>/dev/null || true
-    if [ -n "${_UI_STTY_SAVE:-}" ]; then
-        stty "${_UI_STTY_SAVE}" 2>/dev/null || true
-    fi
+ui_size() {
+    # shellcheck disable=SC2046 # stty 输出两项数字，按空白拆分。
+    set -- $(stty size 2>/dev/null)
+    UI_ROWS="${1:-24}"; UI_COLS="${2:-80}"
+    [ "$UI_ROWS" -gt 0 ] 2>/dev/null || UI_ROWS=24
+    [ "$UI_COLS" -gt 0 ] 2>/dev/null || UI_COLS=80
+    UI_BODY_ROWS=$((UI_ROWS - 9))
+    [ "$UI_BODY_ROWS" -ge 1 ] || UI_BODY_ROWS=1
 }
 
-# 回到左上角并清掉下方旧内容（比整屏 2J 闪烁小很多），重绘时隐藏光标
-ui_redraw_begin() {
-    printf '\033[?25l\033[H\033[J'
-}
-
-# 输出：up / down / space / enter / all / none / quit / other
-ui_read_key() {
-    c="$(dd bs=1 count=1 2>/dev/null)"
-    case "$c" in
-        " ")
-            printf 'space'
-            return 0
-            ;;
-        a|A)
-            printf 'all'
-            return 0
-            ;;
-        n|N)
-            printf 'none'
-            return 0
-            ;;
-        b|B)
-            printf 'back'
-            return 0
-            ;;
-        q|Q)
-            printf 'quit'
-            return 0
-            ;;
-        j|J)
-            printf 'down'
-            return 0
-            ;;
-        k|K)
-            printf 'up'
-            return 0
-            ;;
-        "")
-            # 部分环境 Enter 读到空
-            printf 'enter'
-            return 0
-            ;;
-    esac
-
-    # Enter：换行或回车
-    nl="$(printf '\n')"
-    cr="$(printf '\r')"
-    if [ "$c" = "$nl" ] || [ "$c" = "$cr" ]; then
-        printf 'enter'
-        return 0
-    fi
-
-    # 方向键：ESC [ A/B ，或 ESC O A/B
-    esc="$(printf '\033')"
-    if [ "$c" = "$esc" ]; then
-        stty min 0 time 1 2>/dev/null
-        c2="$(dd bs=1 count=1 2>/dev/null)"
-        c3="$(dd bs=1 count=1 2>/dev/null)"
-        stty min 1 time 0 2>/dev/null
-        case "${c2}${c3}" in
-            "[A"|"OA") printf 'up'; return 0 ;;
-            "[B"|"OB") printf 'down'; return 0 ;;
-        esac
-    fi
-
-    printf 'other'
-}
-
-# 分步多选：只展示 types 匹配的计划项
-# 用法：checkbox_select_step "标题" "brew|cask" "$plan"
-checkbox_select_step() {
-    title="$1"
-    types="$2"
-    plan="$3"
-    selection_hint="${4:-选择要处理的项目}"
-    cursor=1
-    total="$(plan_count_types "$plan" "$types")"
-    [ "$total" -gt 0 ] || { echo "没有可调整的项目。"; return 0; }
-    if [ ! -t 0 ] || [ ! -t 1 ]; then
-        echo "选择项目需要交互终端。" >&2
-        return 1
-    fi
-    selection_original="$(mktemp -t mac-as-code-selection.XXXXXX)" || return 1
-    cp "$plan" "$selection_original"
-    _UI_STTY_SAVE="$(stty -g)"
+ui_enter() {
+    [ -t 0 ] && [ -t 1 ] || return 1
+    _UI_STTY_SAVE="$(stty -g)" || return 1
+    _UI_SAVED_TRAPS="$(trap)"
     trap 'ui_restore_tty; exit 130' INT
     trap 'ui_restore_tty; exit 143' TERM
-    stty -echo -icanon min 1 time 0 2>/dev/null
+    trap 'ui_restore_tty; exit 129' HUP
+    stty -echo -icanon -ixon min 1 time 0 || return 1
+    printf '\033[r'
+}
+
+ui_restore_tty() {
+    [ ! -t 1 ] || printf '\033[r\033[0m\033[?25h'
+    if [ -n "$_UI_STTY_SAVE" ]; then
+        stty "$_UI_STTY_SAVE" 2>/dev/null || true
+        _UI_STTY_SAVE=""
+    fi
+}
+
+ui_leave() {
+    ui_restore_tty
+    trap - INT TERM HUP
+    # 恢复本进程保存的 trap 声明，不执行用户输入。
+    eval "$_UI_SAVED_TRAPS"
+    printf '\033[%s;1H' "$UI_ROWS"
+}
+
+# 尾部标记保留换行，以区分 Enter 和 EOF。
+ui_read_char() {
+    UI_CHAR="$(dd bs=1 count=1 2>/dev/null; printf '.')"
+    UI_CHAR="${UI_CHAR%.}"
+}
+
+ui_read_key() {
+    ui_read_char
+    case "$UI_CHAR" in
+        '') printf eof ;;
+        "$(printf '\r')"|'
+') printf enter ;;
+        ' ') printf space ;;
+        q|Q|"$(printf '\021')") printf quit ;;
+        b|B) printf back ;;
+        j|J) printf down ;;
+        k|K) printf up ;;
+        a|A) printf all ;;
+        n|N) printf none ;;
+        y|Y) printf yes ;;
+        "$(printf '\004')") printf eof ;;
+        "$(printf '\033')")
+            stty min 0 time 1 2>/dev/null
+            ui_read_char
+            UI_ESCAPE="$UI_CHAR"
+            case "$UI_ESCAPE" in
+                '['|'O')
+                    ui_read_char
+                    UI_ESCAPE="$UI_ESCAPE$UI_CHAR"
+                    case "$UI_CHAR" in
+                        [0-9]) ui_read_char; UI_ESCAPE="$UI_ESCAPE$UI_CHAR" ;;
+                    esac ;;
+            esac
+            stty min 1 time 0 2>/dev/null
+            case "$UI_ESCAPE" in
+                '[A'|'OA') printf up ;;
+                '[B'|'OB') printf down ;;
+                '[5~') printf pageup ;;
+                '[6~') printf pagedown ;;
+                '') printf back ;;
+                *) printf other ;;
+            esac ;;
+        *) printf other ;;
+    esac
+}
+
+# ASCII 占一列；中文等字符保守按两列排版。
+ui_wrap() {
+    LC_ALL=C awk -v width="$1" '
+        {
+            used=0
+            for(i=1;i<=length($0);i++) {
+                c=substr($0,i,1)
+                if(c ~ /[\300-\337]/) { c=substr($0,i,2); i++ }
+                else if(c ~ /[\340-\357]/) { c=substr($0,i,3); i+=2 }
+                else if(c ~ /[\360-\367]/) { c=substr($0,i,4); i+=3 }
+                w=(c ~ /^[ -~]$/)?1:2
+                if(used+w>width) { printf "\n"; used=0 }
+                printf "%s",c; used+=w
+            }
+            printf "\n"
+        }'
+}
+ui_clip() { ui_wrap "$1" | sed -n '1p'; }
+
+# 先在内存中生成整帧，最后一次输出；覆盖新内容后才清除行尾残留。
+# 光标移动期间不清屏、不重置滚动区域，避免计算和子进程输出之间露出空白。
+ui_frame() {
+    case "${4:-back}" in
+        root) UI_NAV='q 退出' ;;
+        edit) UI_NAV='Esc 返回 · Ctrl+Q 退出' ;;
+        run) UI_NAV='Ctrl+C 中止当前任务' ;;
+        *) UI_NAV='b 返回 · q 退出' ;;
+    esac
+    UI_FRAME_OUTPUT="$(
+        printf '\033[?25l\033[1;1H\033[1;36mmac-as-code\033[0m\033[K'
+        printf '\033[2;1H\033[90m%s\033[0m\033[K' "$(printf '%s\n' '让每一台 Mac，都回到你的习惯。' | ui_clip "$UI_COLS")"
+        printf '\033[3;1H\033[90m%s\033[0m\033[K' "$(printf '%s\n' '以配置清单为准，确认后再执行。' | ui_clip "$UI_COLS")"
+        printf '\033[4;1H\033[K\033[5;1H\033[1m%s\033[0m\033[K' "$(printf '%s\n' "$1" | ui_clip "$UI_COLS")"
+        printf '%s\n' "$2" | awk -v count="$UI_BODY_ROWS" '
+            NR <= count { printf "\033[%d;1H%s\033[K", NR+5, $0 }
+            END {
+                for (row=(NR<count ? NR : count)+1; row<=count; row++)
+                    printf "\033[%d;1H\033[K", row+5
+            }'
+        printf '\033[%s;1H\033[K' "$UI_ROWS"
+        printf '\033[%s;1H\033[K' "$((UI_ROWS - 3))"
+        printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 2))" "$(printf '%s\n' "$3" | ui_clip "$UI_COLS")"
+        printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 1))" "$UI_NAV"
+        if [ -n "${5:-}" ]; then
+            printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 3))" "$(printf '%s\n' "$5" | ui_clip "$UI_COLS")"
+        fi
+    )"
+    printf '%s' "$UI_FRAME_OUTPUT"
+}
+
+# 返回 0 选中（answer 为序号）、2 退出、3 返回、1 终端不可用。
+ui_select() {
+    UI_MENU_TITLE="$1"; UI_MENU_CONTEXT="$2"; UI_MENU_MODE="$3"
+    shift 3
+    UI_MENU_OPTIONS="$(printf '%s\n' "$@")"
+    UI_MENU_COUNT=$#; UI_MENU_CURSOR=1
+    [ "$UI_MENU_COUNT" -gt 0 ] || return 1
+    ui_enter || return 1
     while true; do
-        terminal_rows="$(stty size 2>/dev/null | awk '{ print $1 }')"
-        terminal_columns="$(stty size 2>/dev/null | awk '{ print $2 }')"
-        case "$terminal_rows" in ''|*[!0-9]*) terminal_rows=24 ;; esac
-        case "$terminal_columns" in ''|*[!0-9]*) terminal_columns=80 ;; esac
-        [ "$terminal_rows" -ge 12 ] || terminal_rows=12
-        [ "$terminal_columns" -ge 30 ] || terminal_columns=30
-        visible_rows=$(((terminal_rows - 11) / 2))
+        ui_size
+        UI_CONTEXT="$(printf '%s\n' "$UI_MENU_CONTEXT" | ui_wrap "$UI_COLS")"
+        UI_CONTEXT_ROWS="$(printf '%s\n' "$UI_CONTEXT" | awk 'NF {n++} END {print n+0}')"
+        UI_CONTEXT_MAX=$((UI_BODY_ROWS / 2))
+        [ "$UI_CONTEXT_ROWS" -le "$UI_CONTEXT_MAX" ] || UI_CONTEXT_ROWS=$UI_CONTEXT_MAX
+        UI_MENU_VISIBLE=$((UI_BODY_ROWS - UI_CONTEXT_ROWS))
+        [ "$UI_MENU_VISIBLE" -ge 1 ] || UI_MENU_VISIBLE=1
+        UI_MENU_FIRST=$((((UI_MENU_CURSOR - 1) / UI_MENU_VISIBLE) * UI_MENU_VISIBLE + 1))
+        UI_MENU_BODY="$(
+            if [ "$UI_CONTEXT_ROWS" -gt 0 ]; then printf '%s\n' "$UI_CONTEXT" | sed -n "1,${UI_CONTEXT_ROWS}p"; fi
+            printf '%s\n' "$UI_MENU_OPTIONS" | LC_ALL=C awk -v cur="$UI_MENU_CURSOR" -v first="$UI_MENU_FIRST" -v count="$UI_MENU_VISIBLE" -v width="$UI_COLS" '
+                NR>=first && NR<first+count {
+                    label=""; used=4
+                    for(i=1;i<=length($0);i++) {
+                        c=substr($0,i,1)
+                        if(c ~ /[\300-\337]/) { c=substr($0,i,2); i++ }
+                        else if(c ~ /[\340-\357]/) { c=substr($0,i,3); i+=2 }
+                        else if(c ~ /[\360-\367]/) { c=substr($0,i,4); i+=3 }
+                        w=(c ~ /^[ -~]$/)?1:2
+                        if(used+w>width-1) break
+                        label=label c; used+=w
+                    }
+                    if(NR==cur) printf "\033[36m  › %s\033[0m\n",label
+                    else printf "    %s\n",label
+                }'
+        )"
+        ui_frame "$UI_MENU_TITLE" "$UI_MENU_BODY" "↑↓ 选择 · Enter 执行" "$UI_MENU_MODE"
+        UI_KEY="$(ui_read_key)"
+        case "$UI_KEY" in
+            up) [ "$UI_MENU_CURSOR" -le 1 ] || UI_MENU_CURSOR=$((UI_MENU_CURSOR - 1)) ;;
+            down) [ "$UI_MENU_CURSOR" -ge "$UI_MENU_COUNT" ] || UI_MENU_CURSOR=$((UI_MENU_CURSOR + 1)) ;;
+            enter) answer="$UI_MENU_CURSOR"; ui_leave; return 0 ;;
+            back) if [ "$UI_MENU_MODE" != root ]; then ui_leave; return 3; fi ;;
+            quit|eof) ui_leave; return 2 ;;
+        esac
+    done
+}
+
+ui_document() {
+    UI_DOC_TITLE="$1"; UI_DOC_TEXT="$2"; UI_DOC_MODE="${3:-back}"
+    UI_DOC_OFFSET=1
+    ui_enter || return 1
+    while true; do
+        ui_size
+        UI_DOC_WRAPPED="$(printf '%s\n' "$UI_DOC_TEXT" | ui_wrap "$UI_COLS")"
+        UI_DOC_LINES="$(printf '%s\n' "$UI_DOC_WRAPPED" | wc -l | tr -d ' ')"
+        UI_DOC_MAX=$((UI_DOC_LINES - UI_BODY_ROWS + 1))
+        [ "$UI_DOC_MAX" -ge 1 ] || UI_DOC_MAX=1
+        [ "$UI_DOC_OFFSET" -le "$UI_DOC_MAX" ] || UI_DOC_OFFSET="$UI_DOC_MAX"
+        UI_DOC_BODY="$(printf '%s\n' "$UI_DOC_WRAPPED" | sed -n "${UI_DOC_OFFSET},$((UI_DOC_OFFSET + UI_BODY_ROWS - 1))p")"
+        case "$UI_DOC_MODE" in
+            confirm) UI_DOC_HINT='↑↓ 滚动 · Enter / y 确认' ;;
+            login) UI_DOC_HINT='↑↓ 滚动 · Enter 检查登录' ;;
+            *) UI_DOC_HINT="↑↓ 滚动 · $UI_DOC_OFFSET / $UI_DOC_LINES 行" ;;
+        esac
+        ui_frame "$UI_DOC_TITLE" "$UI_DOC_BODY" "$UI_DOC_HINT"
+        UI_KEY="$(ui_read_key)"
+        case "$UI_KEY" in
+            up) [ "$UI_DOC_OFFSET" -le 1 ] || UI_DOC_OFFSET=$((UI_DOC_OFFSET - 1)) ;;
+            down) [ "$UI_DOC_OFFSET" -ge "$UI_DOC_MAX" ] || UI_DOC_OFFSET=$((UI_DOC_OFFSET + 1)) ;;
+            pageup) UI_DOC_OFFSET=$((UI_DOC_OFFSET - UI_BODY_ROWS)); [ "$UI_DOC_OFFSET" -ge 1 ] || UI_DOC_OFFSET=1 ;;
+            pagedown) UI_DOC_OFFSET=$((UI_DOC_OFFSET + UI_BODY_ROWS)) ;;
+            enter|yes)
+                if [ "$UI_DOC_MODE" = confirm ] || { [ "$UI_DOC_MODE" = login ] && [ "$UI_KEY" = enter ]; }; then
+                    ui_leave; return 0
+                fi ;;
+            back) ui_leave; return 3 ;;
+            quit|eof) ui_leave; return 2 ;;
+        esac
+    done
+}
+
+confirm_action() { ui_document "$1" "${2:-请确认以上操作。}" confirm; }
+
+# 路径为空时 b/q 即时导航；编辑时 Esc / Ctrl+Q 导航，字母按字面输入。
+ui_path() {
+    UI_PATH_TITLE="$1"; UI_PATH_NOTE="$2"; answer=""
+    ui_enter || return 1
+    while true; do
+        ui_size
+        UI_PATH_VISIBLE=$((UI_BODY_ROWS - 2))
+        [ "$UI_PATH_VISIBLE" -ge 1 ] || UI_PATH_VISIBLE=1
+        UI_PATH_BODY="$(
+            printf '%s\n\n' "$(printf '%s\n' "$UI_PATH_NOTE" | ui_clip "$UI_COLS")"
+            printf '> %s_\n' "$answer" | ui_wrap "$UI_COLS" | tail -n "$UI_PATH_VISIBLE"
+        )"
+        UI_PATH_MODE=edit
+        [ -n "$answer" ] || UI_PATH_MODE=back
+        ui_frame "$UI_PATH_TITLE" "$UI_PATH_BODY" '输入路径 · Enter 使用' "$UI_PATH_MODE"
+        ui_read_char
+        # 一次收齐 UTF-8 字符，避免逐字节重绘时暂时出现乱码。
+        if [ -n "$UI_CHAR" ]; then
+            UI_CHAR_CODE="$(LC_ALL=C printf '%d' "'$UI_CHAR")"
+            UI_CHAR_EXTRA=0
+            if [ "$UI_CHAR_CODE" -ge 240 ]; then UI_CHAR_EXTRA=3
+            elif [ "$UI_CHAR_CODE" -ge 224 ]; then UI_CHAR_EXTRA=2
+            elif [ "$UI_CHAR_CODE" -ge 192 ]; then UI_CHAR_EXTRA=1
+            fi
+            if [ "$UI_CHAR_EXTRA" -gt 0 ]; then
+                UI_CHAR="$UI_CHAR$(dd bs=1 count="$UI_CHAR_EXTRA" 2>/dev/null)"
+            fi
+        fi
+        case "$UI_CHAR" in
+            ''|"$(printf '\004')"|"$(printf '\021')") ui_leave; return 2 ;;
+            "$(printf '\r')"|'
+') ui_leave; return 0 ;;
+            "$(printf '\033')") ui_leave; return 3 ;;
+            "$(printf '\177')"|"$(printf '\010')")
+                answer="$(printf '%s\n' "$answer" | LC_ALL=C awk '{sub(/[^\200-\277][\200-\277]*$/, ""); print}')" ;;
+            "$(printf '\025')") answer="" ;;
+            q|Q) if [ -z "$answer" ]; then ui_leave; return 2; else answer="$answer$UI_CHAR"; fi ;;
+            b|B) if [ -z "$answer" ]; then ui_leave; return 3; else answer="$answer$UI_CHAR"; fi ;;
+            *) answer="$answer$UI_CHAR" ;;
+        esac
+    done
+}
+
+ui_execution() {
+    ui_size
+    printf '\033[r'
+    ui_frame "$1" "${2:-正在执行，请查看下方结果。}" '' run
+    # 将执行输出限制在中间区域，长日志不会把顶部说明和页脚推走。
+    printf '\033[6;%sr\033[7;1H\033[?25h' "$((UI_ROWS - 4))"
+}
+
+checkbox_select_step() {
+    title="$1"; types="$2"; plan="$3"
+    selection_hint="${4:-空格勾选需要处理的项目}"
+    cursor=1
+    total="$(plan_count_types "$plan" "$types")"
+    if [ "$total" -eq 0 ]; then
+        ui_document "$title" "没有可调整的项目。"
+        return $?
+    fi
+    [ -t 0 ] && [ -t 1 ] || return 1
+    selection_original="$(mktemp -t mac-as-code-selection.XXXXXX)" || return 1
+    cp "$plan" "$selection_original"
+    ui_enter || { rm -f "$selection_original"; return 1; }
+    while true; do
+        ui_size
+        visible_rows=$(((UI_BODY_ROWS - 1) / 2))
         [ "$visible_rows" -ge 1 ] || visible_rows=1
         first_row=$((((cursor - 1) / visible_rows) * visible_rows + 1))
         details_file="${MAC_AS_CODE_UI_DETAILS:-/dev/null}"
         [ -f "$details_file" ] || details_file=/dev/null
-        frame="$(awk -v types="$types" -v cursor="$cursor" -v first="$first_row" -v rows="$visible_rows" -v width="$terminal_columns" -v title="$title" -v hint="$selection_hint" '
-            BEGIN {
-                split(types, arr, "|"); for (i in arr) want[arr[i]]=1
-                print title
-                print "↑↓ / j k 移动 · 空格 切换 · a 全选 · n 清空"
-                print "Enter 确认选择"
-                print "b 返回（放弃本次调整）"
-                print "q 退出程序（不执行本次选择）"
-                print hint "\n"
+        frame="$(LC_ALL=C awk -v types="$types" -v cursor="$cursor" -v first="$first_row" -v rows="$visible_rows" -v width="$UI_COLS" '
+            function clip(s,   i,c,w,used,out) {
+                used=6; out=""
+                for(i=1;i<=length(s);i++) {
+                    c=substr(s,i,1)
+                    if(c ~ /[\300-\337]/) { c=substr(s,i,2); i++ }
+                    else if(c ~ /[\340-\357]/) { c=substr(s,i,3); i+=2 }
+                    else if(c ~ /[\360-\367]/) { c=substr(s,i,4); i+=3 }
+                    w=(c ~ /^[ -~]$/)?1:2
+                    if(used+w>width-1) return out "…"
+                    out=out c; used+=w
+                }
+                return out
             }
-            FILENAME == ARGV[1] {
+            BEGIN { split(types,arr,"|"); for(i in arr) want[arr[i]]=1 }
+            FILENAME==ARGV[1] {
                 split($0,d,"\t"); descriptions[d[1] SUBSEP d[2]]=d[5]; statuses[d[1] SUBSEP d[2]]=d[3]; next
             }
             {
-                split($0,p,"|"); if (!want[p[2]]) next
-                idx++; if (p[1]=="ON") selected++
-                if (idx < first || idx >= first+rows) next
-                label = (p[2]=="brew" || p[2]=="cask" || p[2]=="mas") ? p[3] : p[4]
+                split($0,p,"|"); if(!want[p[2]]) next
+                idx++; if(p[1]=="ON") selected++
+                if(idx<first || idx>=first+rows) next
+                label=(p[2]=="brew" || p[2]=="cask" || p[2]=="mas") ? p[3] : p[4]
                 detail=descriptions[p[2] SUBSEP p[3]]
-                if (p[2]=="audit") detail=p[5]
-                marker=(statuses[p[2] SUBSEP p[3]]=="manual") ? " [需确认]" : ""
-                # 中文保守按双列预留，避免窄窗口自动换行挤掉页脚。
-                limit=int((width-10)/2)
-                if (length(label)>limit) label=substr(label,1,limit-1) "…"
-                if (length(detail)>limit) detail=substr(detail,1,limit-1) "…"
-                print (idx==cursor ? "> " : "  ") (p[1]=="ON" ? "[x] " : "[ ] ") label marker
-                print "      " detail
+                if(p[2]=="audit") detail=p[5]
+                if(statuses[p[2] SUBSEP p[3]]=="manual") label=label " [需确认]"
+                printf "%s%s%s%s\n", (idx==cursor ? "\033[36m› " : "  "), (p[1]=="ON" ? "[x] " : "[ ] "), clip(label), "\033[0m"
+                printf "\033[90m      %s\033[0m\n",clip(detail)
             }
-            END { printf "\n已选 %d / %d · 第 %d 项（详情可返回查看）\n", selected,idx,cursor }
+            END { printf "已选 %d / %d · 第 %d 项\n",selected,idx,cursor }
         ' "$details_file" "$plan")"
-        ui_redraw_begin
-        printf '%s\n' "$frame"
+        ui_frame "$title" "$frame" '↑↓ 移动 · 空格切换 · a 全选 · n 清空' back "Enter 保存 · $selection_hint"
         key="$(ui_read_key)"
         case "$key" in
             up) [ "$cursor" -le 1 ] || cursor=$((cursor - 1)) ;;
@@ -632,13 +811,10 @@ checkbox_select_step() {
             none) plan_set_types_state "$plan" "$types" OFF ;;
             enter) selection_status=0; break ;;
             back) cp "$selection_original" "$plan"; selection_status=3; break ;;
-            quit) cp "$selection_original" "$plan"; selection_status=2; break ;;
+            quit|eof) cp "$selection_original" "$plan"; selection_status=2; break ;;
         esac
     done
-    ui_restore_tty
-    _UI_STTY_SAVE=""
-    trap - INT TERM
+    ui_leave
     rm -f "$selection_original"
-    echo
     return "$selection_status"
 }

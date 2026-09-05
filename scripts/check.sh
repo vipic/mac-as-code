@@ -3,7 +3,7 @@
 set -eu
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
-[ "$#" -eq 0 ] || { echo "用法：sh init.sh check" >&2; exit 1; }
+[ "$#" -eq 0 ] || { echo "用法：sh mac.sh --check" >&2; exit 1; }
 command -v shellcheck >/dev/null 2>&1 || { echo "缺少 shellcheck，请先安装后再运行校验。" >&2; exit 1; }
 for script in ./*.sh ./scripts/*.sh ./config/*.sh ./config/recipes/*.sh ./tests/*.sh ./tests/fixtures/*.sh; do
     bash -n "$script"

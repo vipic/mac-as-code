@@ -48,7 +48,7 @@ if [ "$MAS_TOTAL" -eq 0 ]; then
 fi
 
 if ! command -v brew >/dev/null 2>&1; then
-    echo "❌ brew 未安装，请先运行 scripts/brew.sh"
+    echo "❌ brew 未安装，请从 sh mac.sh 的配置菜单安装软件"
     record_result "FAIL" "mas" "brew 未安装"
     rm -f "$MAS_LIST"
     finalize_results_if_owned

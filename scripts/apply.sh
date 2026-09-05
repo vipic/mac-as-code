@@ -7,62 +7,10 @@ SCRIPTS_DIR="$ROOT_DIR/scripts"
 # shellcheck source=common.sh
 . "$SCRIPTS_DIR/common.sh"
 
-if ! command -v create_default_plan >/dev/null 2>&1; then
-    echo "❌ 未能加载 scripts/common.sh（${SCRIPTS_DIR}/common.sh）"
-    echo "   请在仓库根目录执行：sh init.sh  或  bash init.sh"
+if [ "$#" -ne 0 ] || [ ! -r "${MAC_AS_CODE_INPUT_PLAN:-}" ]; then
+    echo "内部执行器，请运行 sh mac.sh 并从菜单确认操作。" >&2
     exit 1
 fi
-
-START_FROM=""
-SKIP_DOCTOR=0
-YES_MODE=0
-PLAN_FILE=""
-
-usage() {
-    cat <<'EOF'
-内部执行器；日常请运行 sh init.sh。
-兼容全量执行：sh init.sh --yes [--from defaults|brew|recipe|dock] [--skip-doctor]
-EOF
-}
-
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        -h|--help)
-            usage
-            exit 0
-            ;;
-        --skip-doctor)
-            SKIP_DOCTOR=1
-            shift
-            ;;
-        --yes|-y)
-            YES_MODE=1
-            shift
-            ;;
-        --from)
-            if [ -z "${2:-}" ]; then
-                echo "❌ --from 需要指定步骤名：defaults, brew, recipe, dock"
-                exit 1
-            fi
-            case "$2" in
-                defaults|brew|recipe|plugin|zsh|dock)
-                    START_FROM="$2"
-                    ;;
-                *)
-                    echo "❌ 未知的 --from 步骤：$2"
-                    echo "   可用步骤：defaults, brew, recipe, dock（plugin、zsh 为 recipe 兼容别名）"
-                    exit 1
-                    ;;
-            esac
-            shift 2
-            ;;
-        *)
-            echo "❌ 未知参数：$1"
-            usage
-            exit 1
-            ;;
-    esac
-done
 
 PLAN_FILE="$(mktemp -t mac-as-code-plan.XXXXXX)"
 export MAC_AS_CODE_PLAN="$PLAN_FILE"
@@ -72,31 +20,11 @@ export MAC_AS_CODE_LOG_DIR="$ROOT_DIR/logs"
 : >"$MAC_AS_CODE_RESULTS"
 trap 'rm -f "$MAC_AS_CODE_RESULTS" "$PLAN_FILE"' EXIT
 
-if [ -n "${MAC_AS_CODE_INPUT_PLAN:-}" ]; then
-    cat "$MAC_AS_CODE_INPUT_PLAN" >"$PLAN_FILE" || exit 1
-elif [ "$YES_MODE" -eq 1 ]; then
-    create_default_plan "$CONFIG_DIR/Brewfile" "$PLAN_FILE" "$CONFIG_DIR"
-else
-    echo "请从 sh init.sh 选择任务；自动执行必须显式指定 --yes。" >&2
-    exit 1
-fi
+cat "$MAC_AS_CODE_INPUT_PLAN" >"$PLAN_FILE" || exit 1
 
 if [ "$(uname -s)" != Darwin ]; then
     echo "此任务只能在 macOS 上执行。" >&2
     exit 1
-fi
-if [ -n "$START_FROM" ]; then
-    awk -F '|' -v start="$START_FROM" '
-        BEGIN {
-            OFS="|"
-            rank["defaults"]=1; rank["brew"]=2; rank["cask"]=2; rank["mas"]=2
-            rank["recipe"]=3; rank["github-release"]=3; rank["plugin"]=3; rank["zsh"]=3; rank["dock"]=4
-        }
-        { if (rank[$2] < rank[start]) $1="OFF"; print }
-    ' "$PLAN_FILE" >"$PLAN_FILE.filtered"
-    cat "$PLAN_FILE.filtered" >"$PLAN_FILE"
-    rm -f "$PLAN_FILE.filtered"
-    START_FROM=""
 fi
 retry_dir="${MAC_AS_CODE_STATE_DIR:-$HOME/.local/state/mac-as-code}"
 mkdir -p "$retry_dir" || exit 1
@@ -109,15 +37,10 @@ if awk -F '|' '$1 == "ON" && $2 != "defaults" && $2 != "dock" { found=1 } END { 
     if ! xcode-select -p >/dev/null 2>&1; then
         echo "安装软件需要 Xcode Command Line Tools，正在打开系统安装器…"
         xcode-select --install
-        echo "安装完成后重新运行 sh init.sh，已满足项会自动跳过。"
+        echo "安装完成后重新运行 sh mac.sh，已满足项会自动跳过。"
         exit 1
     fi
-    if [ "$SKIP_DOCTOR" -eq 0 ]; then
-        sh "$SCRIPTS_DIR/doctor.sh" --pre || exit 1
-    fi
-fi
-if [ -t 0 ] && [ "${MAC_AS_CODE_INTERACTIVE:-0}" = 1 ]; then
-    YES_MODE=0
+    sh "$SCRIPTS_DIR/doctor.sh" --pre || exit 1
 fi
 
 # App Store：多选已决定装哪些；这里只处理登录，不再问「继续/跳过全部」
@@ -152,26 +75,26 @@ confirm_mas_upfront() {
         return 0
     fi
 
-    if [ "$YES_MODE" = "1" ] || [ ! -t 0 ]; then
-        echo "ℹ️  非交互模式：未检测到 Apple ID，仍尝试安装（可能失败）"
-        export MAC_AS_CODE_MAS_READY=1
-        return 0
+    if [ ! -t 0 ]; then
+        echo "未检测到 Apple ID，请在交互终端登录后重试。" >&2
+        return 1
     fi
 
     echo "⚠️  未检测到 Apple ID，打开 App Store，请登录后按 Enter 继续"
     open -a "App Store" 2>/dev/null || true
 
     while true; do
-        printf 'Enter 检查登录\nb 返回\nq 退出程序\n选择 > '
-        read -r answer || return 2
-        case "$answer" in
-            b|B) return 3 ;;
-            q|Q) return 2 ;;
+        ui_document "App Store 登录" "请在 App Store 完成登录，然后按 Enter 检查。" login
+        input_status=$?
+        case "$input_status" in
+            1) return 2 ;;
+            2|3) return "$input_status" ;;
         esac
         if apple_id_signed_in; then
             apple_id="$(apple_id_account)"
             echo "✅ 已检测到 Apple ID：${apple_id}"
             export MAC_AS_CODE_MAS_READY=1
+            ui_execution "继续安装软件"
             return 0
         fi
         echo "仍未检测到登录，请登录后再按 Enter（或 Ctrl+C 中止）"
@@ -197,13 +120,6 @@ run_step() {
     description="$2"
     script_path="$3"
     shift 3
-
-    if [ -n "$START_FROM" ] && [ "$START_FROM" != "$name" ]; then
-        echo "⏭️  跳过：${description}"
-        record_result "SKIP" "步骤:$name" "未到达 --from 起始步骤"
-        return 0
-    fi
-    START_FROM=""
 
     echo
     STEP_INDEX=$((STEP_INDEX + 1))
@@ -262,22 +178,6 @@ maybe_run_recipes() {
         return 0
     fi
 
-    # --from recipe（或旧别名 plugin / zsh）从此步开始；其它起始步则整段跳过
-    if [ -n "$START_FROM" ] && [ "$START_FROM" != "recipe" ] && [ "$START_FROM" != "plugin" ] && [ "$START_FROM" != "zsh" ]; then
-        echo
-        echo "⏭️  跳过：Recipes（未到达 --from 起始步骤）"
-        while IFS='|' read -r state type name label || [ -n "${state:-}" ]; do
-            [ "${state:-}" = "ON" ] || continue
-            case "${type:-}" in
-                recipe|github-release)
-                    record_result "SKIP" "${type}:${name}" "未到达 --from 起始步骤"
-                    ;;
-            esac
-        done <"$PLAN_FILE"
-        return 0
-    fi
-    START_FROM=""
-
     while IFS='|' read -r state type name label || [ -n "${state:-}" ]; do
         [ "${state:-}" = "ON" ] || continue
         case "${type:-}" in
@@ -334,14 +234,14 @@ awk -F '\t' '
 mv "$retry_temp" "$retry_dir/retry.plan" || exit 1
 print_results_summary "$MAC_AS_CODE_RESULTS"
 summary_status=$?
-persist_results_log "$MAC_AS_CODE_RESULTS" "init" "$ROOT_DIR"
+persist_results_log "$MAC_AS_CODE_RESULTS" "apply" "$ROOT_DIR"
 
 echo
 if [ "$summary_status" -eq 0 ] && [ "$STEP_FAIL_COUNT" -eq 0 ]; then
     echo "✅ 全部完成"
-    echo "如需恢复个人数据：运行 sh init.sh，选择从备份恢复。"
+    echo "如需恢复个人数据：运行 sh mac.sh，选择从备份恢复。"
     exit 0
 fi
 
-echo "⚠️  执行结束，但仍有失败项；可从 sh init.sh 的配置菜单重试失败项；详情见日志。"
+echo "⚠️  执行结束，但仍有失败项；可从 sh mac.sh 的配置菜单重试失败项；详情见日志。"
 exit 1
