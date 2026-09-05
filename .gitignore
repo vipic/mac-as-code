@@ -9,3 +9,6 @@ logs/
 *.swo
 *~
 .backup/
+
+# Personal migration snapshots
+reset-kit/

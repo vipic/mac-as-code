@@ -1,6 +1,12 @@
 #!/bin/bash
 set -eu
 
+case "${1:-}" in
+    -h|--help)
+        echo "用法：sh init.sh backup [目录]（自动执行加 --yes）"
+        exit 0
+        ;;
+esac
 if [ "$#" -gt 1 ]; then
     echo "用法：bash scripts/backup.sh [备份目录]"
     echo "默认备份目录：$HOME/Desktop/backup/reset-kit"
@@ -8,6 +14,13 @@ if [ "$#" -gt 1 ]; then
 fi
 
 BACKUP_ROOT="${1:-$HOME/Desktop/backup/reset-kit}"
+if [ "${MAC_AS_CODE_BACKUP_CONFIRMED:-0}" != 1 ]; then
+    [ -t 0 ] || { echo "自动备份请运行 sh init.sh backup --yes [目录]。" >&2; exit 1; }
+    echo "将备份个人配置到 $BACKUP_ROOT，并临时退出 Keyboard Maestro 和 Brave。"
+    printf '开始备份？[y/N] '
+    read -r answer || exit 1
+    case "$answer" in y|Y) ;; *) exit 0 ;; esac
+fi
 STAMP="$(date +%Y%m%d-%H%M%S)"
 HOST_NAME="$(scutil --get ComputerName 2>/dev/null || hostname)"
 SAFE_HOST_NAME="$(printf '%s' "$HOST_NAME" | tr -c '[:alnum:]_.-' '-')"
@@ -57,7 +70,7 @@ copy_ghostty_config() {
         return 0
     fi
 
-    # Ghostty 可以在两套目录中放主配置、主题和 config-file 引用文件。
+    # 只备份统一使用的 XDG 目录，包括目录内的主题和引用文件。
     # 只有 .bak / .DS_Store 时不创建空的快照目录。
     meaningful_path="$(
         find "$src" -mindepth 1 \( -type f -o -type l \) \
@@ -317,6 +330,10 @@ write_restore_script() {
 #!/bin/bash
 set -eu
 
+case "${1:-}" in
+    -h|--help) echo "用法：sh restore.sh [--yes]；会先校验快照并保留现有文件"; exit 0 ;;
+    --yes) MAC_AS_CODE_RESTORE_CONFIRMED=1; shift ;;
+esac
 if [ "$#" -gt 0 ]; then
     echo "用法：bash restore.sh"
     echo "请在快照目录中执行，脚本会自动使用自身所在目录作为恢复来源。"
@@ -478,6 +495,14 @@ restore_brave_extension_configs() {
     fi
 }
 
+if [ "${MAC_AS_CODE_RESTORE_CONFIRMED:-0}" != 1 ]; then
+    [ -t 0 ] || { echo "自动恢复必须显式指定 --yes。" >&2; exit 1; }
+    echo "将从 $SNAPSHOT_DIR 恢复个人数据，保留现有文件为 .before-restore-*，并退出相关应用。"
+    printf '确认恢复？[y/N] '
+    read -r answer || exit 1
+    case "$answer" in y|Y) ;; *) exit 0 ;; esac
+fi
+[ -s "$SNAPSHOT_DIR/SHA256SUMS" ] || { echo "缺少或空的完整性校验文件，停止恢复。" >&2; exit 1; }
 # 校验快照完整性
 if [ -f "$SNAPSHOT_DIR/SHA256SUMS" ]; then
     echo "🔐 校验快照完整性..."
@@ -500,9 +525,12 @@ fi
 restore_path "Git 配置" "home/.gitconfig" "$HOME/.gitconfig"
 restore_path "Zsh 配置" "home/.zshrc" "$HOME/.zshrc"
 
-quit_app "Ghostty"
+# 避免在 Ghostty 中运行恢复时关闭承载当前任务的终端。
 restore_path "Ghostty XDG 配置" "home/.config/ghostty" "$HOME/.config/ghostty"
-restore_path "Ghostty macOS 配置" "application-support/com.mitchellh.ghostty" "$HOME/Library/Application Support/com.mitchellh.ghostty"
+# 兼容已有快照；新备份不再包含 macOS 专用目录。
+if [ -d "$SNAPSHOT_DIR/application-support/com.mitchellh.ghostty" ]; then
+    restore_path "Ghostty macOS 配置" "application-support/com.mitchellh.ghostty" "$HOME/Library/Application Support/com.mitchellh.ghostty"
+fi
 
 quit_app "CleanShot X"
 import_defaults "CleanShot 偏好" "preferences/pl.maketheweb.cleanshotx.plist" "pl.maketheweb.cleanshotx"
@@ -535,13 +563,21 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
     esac
 done
 
-echo "✅ 恢复完成。建议重新打开 Ghostty、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
+printf '%s' "$SUMMARY" | awk -F '\t' '$1 == "DONE" { done++ } $1 == "SKIP" { skip++ } END { printf "恢复结束：完成 %d，未恢复 %d；未恢复项目见上方。\n", done, skip }'
+echo "建议重新打开 Ghostty、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
 echo "   Brave：先登录 Sync 拉回扩展列表，再确认各插件本地配置是否已恢复。"
 RESTORE_SCRIPT
 
     chmod +x "$restore_script"
 }
 
+# 同一秒再次运行也不能覆盖已有快照。
+mkdir -p "$BACKUP_ROOT"
+if ! mkdir "$SNAPSHOT_DIR"; then
+    echo "无法创建快照目录；如目录已存在，请稍后重试。" >&2
+    exit 1
+fi
+chmod 700 "$SNAPSHOT_DIR"
 mkdir -p "$SNAPSHOT_DIR/metadata"
 
 {
@@ -559,7 +595,6 @@ copy_ssh
 copy_path "Git 配置" "$HOME/.gitconfig" "home/.gitconfig"
 copy_path "Zsh 配置" "$HOME/.zshrc" "home/.zshrc"
 copy_ghostty_config "Ghostty XDG 配置" "$HOME/.config/ghostty" "home/.config/ghostty"
-copy_ghostty_config "Ghostty macOS 配置" "$HOME/Library/Application Support/com.mitchellh.ghostty" "application-support/com.mitchellh.ghostty"
 
 export_defaults "CleanShot 偏好" "pl.maketheweb.cleanshotx" "preferences/pl.maketheweb.cleanshotx.plist"
 
@@ -608,4 +643,6 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
     esac
 done
 
-echo "✅ 备份完成：$SNAPSHOT_DIR"
+printf '%s' "$SUMMARY" | awk -F '\t' '$1 == "DONE" { done++ } $1 == "SKIP" { skip++ } END { printf "备份结束：完成 %d，未备份 %d；未备份项目见上方。\n", done, skip }'
+echo "快照位置：$SNAPSHOT_DIR"
+echo "请将整个快照目录拷到外置盘；新机运行 sh init.sh，选择从备份恢复。"

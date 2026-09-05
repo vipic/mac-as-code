@@ -3,6 +3,17 @@
 # 由 init.sh 与 scripts/ 下脚本以 `.` 加载，不要直接执行。
 # 兼容 sh 与 bash（避免 bash 独有语法）。
 
+# 新安装的 Homebrew 无需重新打开终端也能被后续任务发现。
+if ! command -v brew >/dev/null 2>&1; then
+    for brew_prefix in /opt/homebrew /usr/local; do
+        if [ -x "$brew_prefix/bin/brew" ]; then
+            PATH="$brew_prefix/bin:$brew_prefix/sbin:$PATH"
+            export PATH
+            break
+        fi
+    done
+fi
+
 # 初始化结果文件。若由 init.sh 导出 MAC_AS_CODE_RESULTS，则复用（不清空）；否则自建。
 init_results() {
     if [ -z "${MAC_AS_CODE_RESULTS:-}" ]; then
@@ -53,74 +64,17 @@ persist_results_log() {
 
 # 打印成功 / 失败 / 跳过汇总
 print_results_summary() {
-    file="${1:-${MAC_AS_CODE_RESULTS:-}}"
-    ok_count=0
-    fail_count=0
-    skip_count=0
-    tab="$(printf '\t')"
-    ok_pat="$(printf '^OK\t')"
-    fail_pat="$(printf '^FAIL\t')"
-    skip_pat="$(printf '^SKIP\t')"
-
-    if [ -z "$file" ] || [ ! -f "$file" ]; then
-        echo
-        echo "ℹ️  无结果可汇总"
-        return 0
-    fi
-
+    summary_file="${1:-${MAC_AS_CODE_RESULTS:-}}"
+    [ -f "$summary_file" ] || { echo "没有执行结果。"; return 0; }
     echo
-    echo "================ 执行结果汇总 ================"
-
-    if grep -q "$ok_pat" "$file" 2>/dev/null; then
-        echo
-        echo "✅ 成功："
-        while IFS="$tab" read -r status item detail; do
-            [ "$status" = "OK" ] || continue
-            ok_count=$((ok_count + 1))
-            if [ -n "$detail" ]; then
-                echo "  - ${item}（${detail}）"
-            else
-                echo "  - ${item}"
-            fi
-        done <"$file"
-    fi
-
-    if grep -q "$fail_pat" "$file" 2>/dev/null; then
-        echo
-        echo "❌ 失败："
-        while IFS="$tab" read -r status item detail; do
-            [ "$status" = "FAIL" ] || continue
-            fail_count=$((fail_count + 1))
-            if [ -n "$detail" ]; then
-                echo "  - ${item}（${detail}）"
-            else
-                echo "  - ${item}"
-            fi
-        done <"$file"
-    fi
-
-    if grep -q "$skip_pat" "$file" 2>/dev/null; then
-        echo
-        echo "⏭️  跳过："
-        while IFS="$tab" read -r status item detail; do
-            [ "$status" = "SKIP" ] || continue
-            skip_count=$((skip_count + 1))
-            if [ -n "$detail" ]; then
-                echo "  - ${item}（${detail}）"
-            else
-                echo "  - ${item}"
-            fi
-        done <"$file"
-    fi
-
-    echo
-    echo "统计：成功 ${ok_count}，失败 ${fail_count}，跳过 ${skip_count}"
-    echo "=============================================="
-
-    if [ "$fail_count" -gt 0 ]; then
-        return 1
-    fi
-    return 0
+    awk -F '\t' '
+        $2 ~ /^步骤:/ { if ($1 == "FAIL") print "未完成阶段  " $2 "：" $3; next }
+        $1 == "OK" { if ($3 ~ /已安装/) met++; else ok++; next }
+        $1 == "SKIP" { skip++; next }
+        $1 == "FAIL" { fail++; print "失败  " $2 "：" $3 }
+        END { printf "执行结束：完成 %d，已满足 %d，跳过 %d，失败 %d\n", ok, met, skip, fail }
+    ' "$summary_file"
+    ! grep -q "$(printf '^FAIL\t')" "$summary_file"
 }
 
 finalize_results_if_owned() {
@@ -215,7 +169,7 @@ _flush_annotated_item() {
     fi
     if plan_item_enabled "$_ann_type" "$_ann_id"; then
         echo "  → ${_ann_label}"
-        if [ -r /dev/tty ]; then
+        if [ -t 0 ]; then
             status=0
             sh "$_ann_body" </dev/tty || status=$?
         else
@@ -531,7 +485,7 @@ _UI_STTY_SAVE=""
 
 ui_restore_tty() {
     # 恢复光标显示，再还原终端属性
-    printf '\033[?25h' 2>/dev/null || true
+    [ ! -t 1 ] || printf '\033[?25h' 2>/dev/null || true
     if [ -n "${_UI_STTY_SAVE:-}" ]; then
         stty "${_UI_STTY_SAVE}" 2>/dev/null || true
     fi
@@ -556,6 +510,10 @@ ui_read_key() {
             ;;
         n|N)
             printf 'none'
+            return 0
+            ;;
+        b|B)
+            printf 'back'
             return 0
             ;;
         q|Q)
@@ -588,8 +546,10 @@ ui_read_key() {
     # 方向键：ESC [ A/B ，或 ESC O A/B
     esc="$(printf '\033')"
     if [ "$c" = "$esc" ]; then
+        stty min 0 time 1 2>/dev/null
         c2="$(dd bs=1 count=1 2>/dev/null)"
         c3="$(dd bs=1 count=1 2>/dev/null)"
+        stty min 1 time 0 2>/dev/null
         case "${c2}${c3}" in
             "[A"|"OA") printf 'up'; return 0 ;;
             "[B"|"OB") printf 'down'; return 0 ;;
@@ -605,147 +565,80 @@ checkbox_select_step() {
     title="$1"
     types="$2"
     plan="$3"
-    selection_hint="${4:-（默认已全选，可取消不需要的项）}"
+    selection_hint="${4:-选择要处理的项目}"
     cursor=1
-    total=0
-    key=""
-    audit_label_width=0
-
     total="$(plan_count_types "$plan" "$types")"
-    if [ "$total" -eq 0 ]; then
-        echo "ℹ️  ${title}：无可选项，跳过"
-        return 0
+    [ "$total" -gt 0 ] || { echo "没有可调整的项目。"; return 0; }
+    if [ ! -t 0 ] || [ ! -t 1 ]; then
+        echo "选择项目需要交互终端。" >&2
+        return 1
     fi
-    if [ "$types" = "audit" ]; then
-        audit_label_width="$(awk -F'|' '$2 == "audit" { if (length($4) > width) width = length($4) } END { print width + 0 }' "$plan")"
-    fi
-
+    selection_original="$(mktemp -t mac-as-code-selection.XXXXXX)" || return 1
+    cp "$plan" "$selection_original"
     _UI_STTY_SAVE="$(stty -g)"
-    # 只钩 INT/TERM，避免覆盖 init.sh 的 EXIT 清理 trap
     trap 'ui_restore_tty; exit 130' INT
     trap 'ui_restore_tty; exit 143' TERM
     stty -echo -icanon min 1 time 0 2>/dev/null
-
     while true; do
-        # 一帧内容用一次 awk 生成，避免循环里反复清屏/fork 造成闪烁
-        frame="$(
-            awk -F'|' -v types="$types" -v cursor="$cursor" -v title="$title" -v total="$total" -v selection_hint="$selection_hint" -v audit_label_width="$audit_label_width" '
-                BEGIN {
-                    OFS = ""
-                    n = split(types, arr, "|")
-                    for (i = 1; i <= n; i++) if (arr[i] != "") want[arr[i]] = 1
-                    selected = 0
-                    idx = 0
-                    print "======== " title " ========"
-                    print "↑↓ 移动   空格 选中/取消   a 全选   n 全不选   Enter 确认   q 退出"
-                    print selection_hint
-                    print ""
-                }
-                want[$2] {
-                    idx++
-                    if ($1 == "ON") {
-                        mark = "[x]"
-                        selected++
-                    } else {
-                        mark = "[ ]"
-                    }
-                    pointer = (idx == cursor) ? ">" : " "
-                    type = $2
-                    name = $3
-                    extra = $4
-                    if (type == "defaults" || type == "dock") {
-                        label = (extra != "") ? extra : name
-                    } else if (type == "recipe") {
-                        label = (extra != "") ? extra : name
-                    } else if (type == "github-release") {
-                        label = "[GitHub] " ((extra != "") ? extra : name)
-                    } else if (type == "audit") {
-                        label = sprintf("%-*s — %s", audit_label_width, extra, $5)
-                    } else if (type == "brew") {
-                        label = "[brew] " name
-                    } else if (type == "cask") {
-                        label = "[cask] " name
-                    } else {
-                        label = name
-                    }
-                    print pointer " " mark " " label
-                }
-                END {
-                    print ""
-                    print "已选 " selected " / " total
-                }
-            ' "$plan"
-        )"
-
+        terminal_rows="$(stty size 2>/dev/null | awk '{ print $1 }')"
+        terminal_columns="$(stty size 2>/dev/null | awk '{ print $2 }')"
+        case "$terminal_rows" in ''|*[!0-9]*) terminal_rows=24 ;; esac
+        case "$terminal_columns" in ''|*[!0-9]*) terminal_columns=80 ;; esac
+        [ "$terminal_rows" -ge 12 ] || terminal_rows=12
+        [ "$terminal_columns" -ge 30 ] || terminal_columns=30
+        visible_rows=$(((terminal_rows - 11) / 2))
+        [ "$visible_rows" -ge 1 ] || visible_rows=1
+        first_row=$((((cursor - 1) / visible_rows) * visible_rows + 1))
+        details_file="${MAC_AS_CODE_UI_DETAILS:-/dev/null}"
+        [ -f "$details_file" ] || details_file=/dev/null
+        frame="$(awk -v types="$types" -v cursor="$cursor" -v first="$first_row" -v rows="$visible_rows" -v width="$terminal_columns" -v title="$title" -v hint="$selection_hint" '
+            BEGIN {
+                split(types, arr, "|"); for (i in arr) want[arr[i]]=1
+                print title
+                print "↑↓ / j k 移动 · 空格 切换 · a 全选 · n 清空"
+                print "Enter 确认选择"
+                print "b 返回（放弃本次调整）"
+                print "q 退出程序（不执行本次选择）"
+                print hint "\n"
+            }
+            FILENAME == ARGV[1] {
+                split($0,d,"\t"); descriptions[d[1] SUBSEP d[2]]=d[5]; statuses[d[1] SUBSEP d[2]]=d[3]; next
+            }
+            {
+                split($0,p,"|"); if (!want[p[2]]) next
+                idx++; if (p[1]=="ON") selected++
+                if (idx < first || idx >= first+rows) next
+                label = (p[2]=="brew" || p[2]=="cask" || p[2]=="mas") ? p[3] : p[4]
+                detail=descriptions[p[2] SUBSEP p[3]]
+                if (p[2]=="audit") detail=p[5]
+                marker=(statuses[p[2] SUBSEP p[3]]=="manual") ? " [需确认]" : ""
+                # 中文保守按双列预留，避免窄窗口自动换行挤掉页脚。
+                limit=int((width-10)/2)
+                if (length(label)>limit) label=substr(label,1,limit-1) "…"
+                if (length(detail)>limit) detail=substr(detail,1,limit-1) "…"
+                print (idx==cursor ? "> " : "  ") (p[1]=="ON" ? "[x] " : "[ ] ") label marker
+                print "      " detail
+            }
+            END { printf "\n已选 %d / %d · 第 %d 项（详情可返回查看）\n", selected,idx,cursor }
+        ' "$details_file" "$plan")"
         ui_redraw_begin
         printf '%s\n' "$frame"
-
         key="$(ui_read_key)"
         case "$key" in
-            up)
-                if [ "$cursor" -gt 1 ]; then
-                    cursor=$((cursor - 1))
-                fi
-                ;;
-            down)
-                if [ "$cursor" -lt "$total" ]; then
-                    cursor=$((cursor + 1))
-                fi
-                ;;
-            space)
-                plan_toggle_nth_of_types "$plan" "$types" "$cursor"
-                ;;
-            all)
-                plan_set_types_state "$plan" "$types" "ON"
-                ;;
-            none)
-                plan_set_types_state "$plan" "$types" "OFF"
-                ;;
-            enter)
-                break
-                ;;
-            quit)
-                ui_restore_tty
-                trap - INT TERM
-                echo
-                echo "👋 已退出"
-                return 2
-                ;;
+            up) [ "$cursor" -le 1 ] || cursor=$((cursor - 1)) ;;
+            down) [ "$cursor" -ge "$total" ] || cursor=$((cursor + 1)) ;;
+            space) plan_toggle_nth_of_types "$plan" "$types" "$cursor" ;;
+            all) plan_set_types_state "$plan" "$types" ON ;;
+            none) plan_set_types_state "$plan" "$types" OFF ;;
+            enter) selection_status=0; break ;;
+            back) cp "$selection_original" "$plan"; selection_status=3; break ;;
+            quit) cp "$selection_original" "$plan"; selection_status=2; break ;;
         esac
     done
-
     ui_restore_tty
+    _UI_STTY_SAVE=""
     trap - INT TERM
+    rm -f "$selection_original"
     echo
-    echo "✅ 已确认：${title}"
-}
-
-# 分步编辑计划：系统设置 → Dock → Homebrew → App Store → Recipes / GitHub Releases
-# 返回 2 表示用户按 q 退出
-edit_plan_interactive() {
-    plan="$1"
-    yes_mode="${2:-0}"
-
-    if [ "$yes_mode" = "1" ] || [ ! -t 0 ]; then
-        echo "ℹ️  非交互模式：使用默认全选计划"
-        return 0
-    fi
-
-    echo
-    echo "接下来分步选择要执行的内容（默认全选）。按 q 可随时退出。"
-    checkbox_select_step "步骤 1/5：系统设置（逐项确认）" "defaults" "$plan" || return $?
-    checkbox_select_step "步骤 2/5：Dock（逐项确认）" "dock" "$plan" || return $?
-    checkbox_select_step "步骤 3/5：Homebrew 软件（formula / cask）" "brew|cask" "$plan" || return $?
-    if [ "$(plan_count_types "$plan" "mas")" -gt 0 ]; then
-        checkbox_select_step "步骤 4/5：App Store 应用（mas）" "mas" "$plan" || return $?
-    else
-        echo "ℹ️  步骤 4/5：Brewfile 中无 App Store 应用，跳过"
-    fi
-    checkbox_select_step \
-        "步骤 5/5：Recipes / GitHub Releases 应用" \
-        "recipe|github-release" \
-        "$plan" || return $?
-
-    echo
-    echo "选项已确认，开始装机（中途不再询问模块选项）。"
+    return "$selection_status"
 }

@@ -41,7 +41,7 @@ usage() {
 
 处理
   sh scripts/audit.sh append      多选本机已有、Brewfile 没有的软件并追加
-  sh scripts/audit.sh review      审计后进入 init.sh，选择要应用的配置和软件
+  sh scripts/audit.sh review      实时查看差异并选择应用到电脑
 
 维护（通常由脚本自动执行）
   sh scripts/audit.sh snapshot    将当前受管理设置保存为变化基线
@@ -843,6 +843,19 @@ snapshot_defaults() {
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
             "$group" "$label" "$domain" "$key" "$value_type" "$current" >>"$snapshot_temp"
     done <"$CATALOG"
+    if [ -n "${MAC_AS_CODE_RESULTS:-}" ] && [ -f "$MAC_AS_CODE_RESULTS" ]; then
+        baseline_merged="$(mktemp -t mac-as-code-baseline-merged.XXXXXX)" || return 1
+        [ -f "$BASELINE_FILE" ] || : >"$BASELINE_FILE"
+        awk -F '\t' '
+            FILENAME == ARGV[1] { if ($1 == "OK") ok[$2] = 1; next }
+            FILENAME == ARGV[2] { if ($1 == "SETTING" && ok[$2 ":" $3]) keep[$2 SUBSEP $5 SUBSEP $6] = 1; next }
+            FILENAME == ARGV[3] { if ($0 !~ /^#/) old[$1 SUBSEP $3 SUBSEP $4] = $0; next }
+            /^#/ { print; next }
+            { k = $1 SUBSEP $3 SUBSEP $4; if (keep[k]) print; else if (k in old) print old[k] }
+        ' "$MAC_AS_CODE_RESULTS" "$CATALOG" "$BASELINE_FILE" "$snapshot_temp" >"$baseline_merged"
+        cat "$baseline_merged" >"$snapshot_temp"
+        rm -f "$baseline_merged"
+    fi
     chmod 600 "$snapshot_temp"
     /usr/bin/ditto "$snapshot_temp" "$BASELINE_FILE"
     rm -f "$snapshot_temp"
@@ -1091,8 +1104,9 @@ append_selected_items() {
         "$selection_plan" \
         "（默认全部不选；只处理你用空格勾选的项目）"
     selection_status=$?
-    if [ "$selection_status" -eq 2 ]; then
+    if [ "$selection_status" -eq 2 ] || [ "$selection_status" -eq 3 ]; then
         rm -f "$selection_plan"
+        [ "$selection_status" -ne 2 ] || return 2
         return 0
     fi
     if [ "$selection_status" -ne 0 ]; then
@@ -1107,6 +1121,16 @@ append_selected_items() {
         return 0
     fi
 
+    echo "将向 Brewfile 追加 ${selected_count} 个软件条目，不安装或卸载软件。"
+    echo 'b 返回（取消写入）'
+    echo 'q 退出程序'
+    printf '确认写入配置清单？[y/N] '
+    read -r answer || { rm -f "$selection_plan"; return 1; }
+    case "$answer" in
+        y|Y) ;;
+        q|Q) rm -f "$selection_plan"; return 2 ;;
+        *) rm -f "$selection_plan"; return 0 ;;
+    esac
     result_table="$(mktemp -t mac-as-code-audit-results.XXXXXX)" || {
         rm -f "$selection_plan"
         return 1
@@ -1153,98 +1177,45 @@ EOF
 }
 
 review_and_apply() {
-    print_cached_result all
-    if [ ! -t 0 ]; then
-        echo
-        echo "ℹ️  当前不是交互终端；只完成审计，没有进入应用选择。"
-        return 0
-    fi
-    echo
-    printf '是否进入现有多选界面，决定要应用的设置和软件？[y/N] '
-    read -r answer
-    case "$answer" in
-        y|Y|yes|YES)
-            QUIET=1
-            invalidate_cache
-            exec sh "$ROOT_DIR/init.sh"
-            ;;
-        *)
-            echo "ℹ️  保持当前电脑不变"
-            ;;
-    esac
+    exec sh "$ROOT_DIR/init.sh" configure
 }
 
-COMMAND="all"
+# 只读计划生成器仅复用函数，不进入审计 CLI。
+if [ "${MAC_AS_CODE_AUDIT_LIBRARY:-0}" = 1 ]; then
+    return 0
+fi
+COMMAND=all
 COMMAND_SET=0
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        -r|--refresh)
-            REFRESH=1
-            ;;
-        --quiet)
-            QUIET=1
-            ;;
-        -h|--help|help)
-            usage
-            exit 0
-            ;;
+        -r|--refresh) REFRESH=1 ;;
+        --quiet) QUIET=1 ;;
+        -h|--help|help) usage; exit 0 ;;
         defaults|apps|changes|append|review|snapshot|invalidate)
-            if [ "$COMMAND_SET" -eq 1 ]; then
-                echo "❌ 只能指定一个审计命令" >&2
-                usage
-                exit 1
-            fi
+            [ "$COMMAND_SET" -eq 0 ] || { echo "只能指定一个审计命令。" >&2; exit 1; }
             COMMAND="$1"
             COMMAND_SET=1
             ;;
-        *)
-            echo "❌ 未知参数或命令：$1" >&2
-            usage
-            exit 1
-            ;;
+        *) echo "未知参数或命令：$1" >&2; usage; exit 1 ;;
     esac
     shift
 done
-
 case "$COMMAND" in
     snapshot|invalidate)
-        if [ "$REFRESH" -eq 1 ]; then
-            echo "❌ --refresh 只用于审计查询" >&2
-            exit 1
-        fi
+        [ "$REFRESH" -eq 0 ] || { echo "--refresh 只用于审计查询。" >&2; exit 1; }
         ;;
-    *)
-        if [ "$QUIET" -eq 1 ]; then
-            echo "❌ --quiet 只用于内部 snapshot / invalidate 调用" >&2
-            exit 1
-        fi
-        ;;
+    *) [ "$QUIET" -eq 0 ] || { echo "--quiet 只用于内部 snapshot / invalidate 调用。" >&2; exit 1; } ;;
 esac
-
 trap cleanup EXIT HUP INT TERM
-
 case "$COMMAND" in
-    all|defaults|apps|changes)
-        ensure_cache || exit 1
-        print_cached_result "$COMMAND"
-        ;;
-    review)
-        ensure_cache || exit 1
-        review_and_apply
-        ;;
-    append)
-        ensure_cache || exit 1
-        append_selected_items
-        ;;
+    all|defaults|apps|changes) ensure_cache || exit 1; print_cached_result "$COMMAND" ;;
+    review) review_and_apply ;;
+    append) REFRESH=1; ensure_cache || exit 1; append_selected_items ;;
     snapshot)
         build_catalog || exit 1
         snapshot_defaults || exit 1
-        saved_quiet="$QUIET"
         QUIET=1
         invalidate_cache
-        QUIET="$saved_quiet"
         ;;
-    invalidate)
-        invalidate_cache
-        ;;
+    invalidate) invalidate_cache ;;
 esac
