@@ -303,7 +303,10 @@ while true; do
         2) backup || notice "备份未完成" "请查看执行结果，确认未备份项目。" ;;
         3) restore || notice "恢复未完成" "请查看执行结果，确认未恢复项目。" ;;
         4)
-            environment_report="$(sh "$SCRIPTS_DIR/doctor.sh" 2>&1)"
+            environment_output="$WORK_DIR/environment-report"
+            ui_capture_execution "环境检查" "正在检查工具与安装状态…" \
+                "$environment_output" sh "$SCRIPTS_DIR/doctor.sh" || :
+            environment_report="$(cat "$environment_output")"
             notice "环境检查" "$environment_report" ;;
     esac
 done

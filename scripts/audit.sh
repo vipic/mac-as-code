@@ -915,19 +915,19 @@ build_append_plan() {
 }
 
 brewfile_entry_exists() {
-    package_type="$1"
-    name="$2"
-    app_id="${3:-}"
-    desired_temp="$(mktemp -t mac-as-code-desired.XXXXXX)" || return 1
-    parse_brewfile "$BREWFILE" >"$desired_temp"
-    if [ "$package_type" = "mas" ]; then
-        awk -F'|' -v wanted="$app_id" '$1 == "mas" && $3 == wanted { found = 1 } END { exit found ? 0 : 1 }' "$desired_temp"
+    _brewfile_entry_type="$1"
+    _brewfile_entry_name="$2"
+    _brewfile_entry_app_id="${3:-}"
+    _brewfile_entry_desired="$(mktemp -t mac-as-code-desired.XXXXXX)" || return 1
+    parse_brewfile "$BREWFILE" >"$_brewfile_entry_desired"
+    if [ "$_brewfile_entry_type" = "mas" ]; then
+        awk -F'|' -v wanted="$_brewfile_entry_app_id" '$1 == "mas" && $3 == wanted { found = 1 } END { exit found ? 0 : 1 }' "$_brewfile_entry_desired"
     else
-        desired_contains "$desired_temp" "$package_type" "$name"
+        desired_contains "$_brewfile_entry_desired" "$_brewfile_entry_type" "$_brewfile_entry_name"
     fi
-    found_status=$?
-    rm -f "$desired_temp"
-    return "$found_status"
+    _brewfile_entry_status=$?
+    rm -f "$_brewfile_entry_desired"
+    return "$_brewfile_entry_status"
 }
 
 append_brewfile_entry() {
@@ -992,56 +992,56 @@ append_brewfile_entry() {
 }
 
 execute_append_action() {
-    action_type="$1"
-    package_type="$2"
-    name="$3"
-    metadata="${4:-}"
-    case "$action_type" in
+    _append_action_type="$1"
+    _append_package_type="$2"
+    _append_name="$3"
+    _append_metadata="${4:-}"
+    case "$_append_action_type" in
         add-brewfile)
-            if brewfile_entry_exists "$package_type" "$name" "$metadata"; then
-                echo "ℹ️  $name 已在 Brewfile 中，无需重复加入。"
+            if brewfile_entry_exists "$_append_package_type" "$_append_name" "$_append_metadata"; then
+                echo "ℹ️  $_append_name 已在 Brewfile 中，无需重复加入。"
                 return 0
             fi
-            case "$package_type" in
+            case "$_append_package_type" in
                 brew)
-                    if ! command -v brew >/dev/null 2>&1 || ! brew list --formula "$name" >/dev/null 2>&1; then
-                        echo "❌ $name 已不是本机安装的 Homebrew formula，请重新审计" >&2
+                    if ! command -v brew >/dev/null 2>&1 || ! brew list --formula "$_append_name" >/dev/null 2>&1; then
+                        echo "❌ $_append_name 已不是本机安装的 Homebrew formula，请重新审计" >&2
                         return 1
                     fi
                     ;;
                 cask)
-                    if ! command -v brew >/dev/null 2>&1 || ! brew list --cask "$name" >/dev/null 2>&1; then
-                        echo "❌ $name 已不是本机安装的 Homebrew cask，请重新审计" >&2
+                    if ! command -v brew >/dev/null 2>&1 || ! brew list --cask "$_append_name" >/dev/null 2>&1; then
+                        echo "❌ $_append_name 已不是本机安装的 Homebrew cask，请重新审计" >&2
                         return 1
                     fi
                     ;;
                 mas)
                     if ! command -v mas >/dev/null 2>&1 ||
-                        ! mas list 2>/dev/null | awk -v wanted="$metadata" '$1 == wanted { found = 1 } END { exit found ? 0 : 1 }'; then
-                        echo "❌ $name 已不是本机可检测的 App Store 应用，请重新审计" >&2
+                        ! mas list 2>/dev/null | awk -v wanted="$_append_metadata" '$1 == wanted { found = 1 } END { exit found ? 0 : 1 }'; then
+                        echo "❌ $_append_name 已不是本机可检测的 App Store 应用，请重新审计" >&2
                         return 1
                     fi
                     ;;
             esac
-            append_brewfile_entry "$package_type" "$name" "$metadata"
+            append_brewfile_entry "$_append_package_type" "$_append_name" "$_append_metadata"
             ;;
         add-manual-cask)
-            if ! command -v brew >/dev/null 2>&1 || ! brew info --cask "$name" >/dev/null 2>&1; then
-                echo "❌ Homebrew 已无法找到 cask：${name}，请重新审计" >&2
+            if ! command -v brew >/dev/null 2>&1 || ! brew info --cask "$_append_name" >/dev/null 2>&1; then
+                echo "❌ Homebrew 已无法找到 cask：${_append_name}，请重新审计" >&2
                 return 1
             fi
-            if [ ! -d "$APPLICATIONS_DIR/$metadata" ]; then
-                echo "❌ 本机已找不到 ${metadata}，请重新审计" >&2
+            if [ ! -d "$APPLICATIONS_DIR/$_append_metadata" ]; then
+                echo "❌ 本机已找不到 ${_append_metadata}，请重新审计" >&2
                 return 1
             fi
-            if brewfile_entry_exists cask "$name"; then
-                echo "ℹ️  $name 已在 Brewfile 中，无需重复加入。"
+            if brewfile_entry_exists cask "$_append_name"; then
+                echo "ℹ️  $_append_name 已在 Brewfile 中，无需重复加入。"
                 return 0
             fi
-            append_brewfile_entry cask "$name"
+            append_brewfile_entry cask "$_append_name"
             ;;
         *)
-            echo "❌ 未知追加动作：$action_type" >&2
+            echo "❌ 未知追加动作：$_append_action_type" >&2
             return 1
             ;;
     esac

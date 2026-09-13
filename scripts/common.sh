@@ -750,6 +750,36 @@ ui_execution() {
     printf '\033[6;%sr\033[7;1H\033[?25h' "$((UI_ROWS - 4))"
 }
 
+# 后台执行无交互检查，并在完成前持续刷新加载状态；输出写入指定文件。
+ui_capture_execution() {
+    _ui_capture_title="$1"
+    _ui_capture_message="$2"
+    _ui_capture_output="$3"
+    shift 3
+
+    "$@" >"$_ui_capture_output" 2>&1 &
+    _ui_capture_pid=$!
+    _ui_capture_step=0
+    while kill -0 "$_ui_capture_pid" 2>/dev/null; do
+        case $((_ui_capture_step % 4)) in
+            0) _ui_capture_frame='⠋' ;;
+            1) _ui_capture_frame='⠙' ;;
+            2) _ui_capture_frame='⠹' ;;
+            3) _ui_capture_frame='⠸' ;;
+        esac
+        ui_size
+        printf '\033[r'
+        ui_frame "$_ui_capture_title" "$_ui_capture_frame $_ui_capture_message" '' run
+        _ui_capture_step=$((_ui_capture_step + 1))
+        sleep 0.1
+    done
+    if wait "$_ui_capture_pid"; then
+        return 0
+    else
+        return $?
+    fi
+}
+
 checkbox_select_step() {
     title="$1"; types="$2"; plan="$3"
     selection_hint="${4:-空格勾选需要处理的项目}"

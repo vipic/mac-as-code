@@ -86,3 +86,11 @@ mas "Pages: Create Documents", id: 361309726
 mas "The Unarchiver", id: 425424353
 mas "WeChat", id: 836500024
 mas "Xcode", id: 497799835
+
+# audit-added:start
+# 通过配置菜单确认加入；可按用途移动到上方分类。
+brew "can1357/tap/omp"
+cask "codex"
+cask "sourcetree"
+cask "zcode"
+# audit-added:end

@@ -59,7 +59,7 @@ EOF
 cat >"$SANDBOX/bin/brew" <<'EOF'
 #!/bin/sh
 case "$*" in
-    'list --formula installed'|'list --cask present-cask') exit 0 ;;
+    'list --formula installed'|'list --cask present-cask'|'list --cask codex') exit 0 ;;
     'list --formula missing') exit 1 ;;
     *) echo "测试中禁止未声明的 brew 调用：$*" >&2; exit 99 ;;
 esac
@@ -175,6 +175,25 @@ export MAC_AS_CODE_DEFAULTS_CONFIG="$SANDBOX/repo/config/defaults_config.sh"
 export MAC_AS_CODE_DOCK_CONFIG="$SANDBOX/repo/config/defaults_dock.sh"
 export MAC_AS_CODE_BREWFILE="$SANDBOX/repo/config/Brewfile"
 export MAC_AS_CODE_GITHUB_APPS_CONFIG="$SANDBOX/repo/config/github_release_apps.conf"
+
+# Brewfile 解析不得覆盖当前追加项；历史缺陷会把 codex 错换成最后一项 Xcode。
+cat >"$MAC_AS_CODE_BREWFILE" <<'EOF'
+mas "Xcode", id: 497799835
+EOF
+cat >"$SANDBOX/repo/scripts/append-variable-test.sh" <<'EOF'
+#!/bin/sh
+set -eu
+MAC_AS_CODE_AUDIT_LIBRARY=1
+export MAC_AS_CODE_AUDIT_LIBRARY
+# shellcheck source=audit.sh
+. "$(dirname "$0")/audit.sh"
+execute_append_action add-brewfile cask codex
+EOF
+sh "$SANDBOX/repo/scripts/append-variable-test.sh"
+grep -qx 'cask "codex"' "$MAC_AS_CODE_BREWFILE" || fail '追加项被 Brewfile 最后一项覆盖'
+! grep -qx 'cask "Xcode"' "$MAC_AS_CODE_BREWFILE" || fail '错误追加了 Xcode cask'
+pass '追加应用时保留用户选择的包名'
+
 printf 'ON|defaults|first|第一个设置\nON|defaults|fail|失败的设置\nOFF|defaults|untouched|未选择设置\n' >"$SANDBOX/input.plan"
 if MAC_AS_CODE_INPUT_PLAN="$SANDBOX/input.plan" sh "$SANDBOX/repo/scripts/apply.sh" >"$SANDBOX/out" 2>&1; then
     cat "$SANDBOX/out"
@@ -211,6 +230,11 @@ for helper in backup doctor; do
     # shellcheck disable=SC2016 # 哨兵运行时读取隔离路径。
     printf '#!/bin/sh\ntouch "$TEST_EXECUTED"\n' >"$SANDBOX/repo/scripts/$helper.sh"
 done
+cat >"$SANDBOX/repo/scripts/doctor.sh" <<'EOF'
+#!/bin/sh
+sleep 1
+echo '测试环境正常'
+EOF
 cat >"$SANDBOX/repo/scripts/append-test.sh" <<'EOF'
 #!/bin/sh
 MAC_AS_CODE_AUDIT_LIBRARY=1
@@ -321,6 +345,11 @@ key b
 page "恢复方式"
 key b
 page "选择快照"
+key b
+page "今天想做什么"
+choose 4 "检查环境"
+see "正在检查工具与安装状态"
+see "测试环境正常"
 key b
 page "今天想做什么"
 key q
