@@ -610,7 +610,11 @@ ui_frame() {
         printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 2))" "$(printf '%s\n' "$3" | ui_clip "$UI_COLS")"
         printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 1))" "$UI_NAV"
         if [ -n "${5:-}" ]; then
-            printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 3))" "$(printf '%s\n' "$5" | ui_clip "$UI_COLS")"
+            if [ "${6:-}" = confirm ]; then
+                printf '\033[%s;1H\033[1;36m%s\033[0m\033[K' "$((UI_ROWS - 3))" "$(printf '%s\n' "$5" | ui_clip "$UI_COLS")"
+            else
+                printf '\033[%s;1H\033[90m%s\033[0m\033[K' "$((UI_ROWS - 3))" "$(printf '%s\n' "$5" | ui_clip "$UI_COLS")"
+            fi
         fi
     )"
     printf '%s' "$UI_FRAME_OUTPUT"
@@ -665,6 +669,13 @@ ui_select() {
 
 ui_document() {
     UI_DOC_TITLE="$1"; UI_DOC_TEXT="$2"; UI_DOC_MODE="${3:-back}"
+    UI_DOC_PROMPT=""
+    UI_DOC_ACTION=""
+    if [ "$UI_DOC_MODE" = confirm ]; then
+        UI_DOC_PROMPT="$UI_DOC_TITLE"
+        UI_DOC_ACTION="$(printf '%s\n' "$UI_DOC_PROMPT" | sed 's/[?？]$//')"
+        UI_DOC_TITLE="确认操作"
+    fi
     UI_DOC_OFFSET=1
     ui_enter || return 1
     while true; do
@@ -676,11 +687,15 @@ ui_document() {
         [ "$UI_DOC_OFFSET" -le "$UI_DOC_MAX" ] || UI_DOC_OFFSET="$UI_DOC_MAX"
         UI_DOC_BODY="$(printf '%s\n' "$UI_DOC_WRAPPED" | sed -n "${UI_DOC_OFFSET},$((UI_DOC_OFFSET + UI_BODY_ROWS - 1))p")"
         case "$UI_DOC_MODE" in
-            confirm) UI_DOC_HINT='↑↓ 滚动 · Enter / y 确认' ;;
+            confirm) UI_DOC_HINT="y / Enter：$UI_DOC_ACTION · ↑↓ 滚动" ;;
             login) UI_DOC_HINT='↑↓ 滚动 · Enter 检查登录' ;;
             *) UI_DOC_HINT="↑↓ 滚动 · $UI_DOC_OFFSET / $UI_DOC_LINES 行" ;;
         esac
-        ui_frame "$UI_DOC_TITLE" "$UI_DOC_BODY" "$UI_DOC_HINT"
+        if [ "$UI_DOC_MODE" = confirm ]; then
+            ui_frame "$UI_DOC_TITLE" "$UI_DOC_BODY" "$UI_DOC_HINT" back "$UI_DOC_PROMPT" confirm
+        else
+            ui_frame "$UI_DOC_TITLE" "$UI_DOC_BODY" "$UI_DOC_HINT"
+        fi
         UI_KEY="$(ui_read_key)"
         case "$UI_KEY" in
             up) [ "$UI_DOC_OFFSET" -le 1 ] || UI_DOC_OFFSET=$((UI_DOC_OFFSET - 1)) ;;

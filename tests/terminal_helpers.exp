@@ -15,6 +15,14 @@ proc page {title} {
     # 导航必须位于定位后的灰色页脚，不能混在正文输入提示里。
     see {\x1b\[[0-9]+;1H\x1b\[90m(b 返回 · )?q 退出}
 }
+proc confirmation {prompt action} {
+    see "确认操作"
+    see "y / Enter：$action"
+    see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
+    # 问题固定在按键提示上方，不再混在页首标题中。
+    see {\x1b\[[0-9]+;1H\x1b\[1;36m}
+    see $prompt
+}
 proc choose {index label} {
     global spawn_id
     for {set i 1} {$i < $index} {incr i} { send -- "\033\[B" }

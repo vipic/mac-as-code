@@ -332,11 +332,11 @@ see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
 key b
 page "配置这台 Mac"
 choose 1 ""
-page "确认应用以上项目"
+confirmation "确认应用以上项目" "确认应用以上项目"
 key b
 page "配置这台 Mac"
 choose 1 ""
-page "确认应用以上项目"
+confirmation "确认应用以上项目" "确认应用以上项目"
 key y
 page "计划已更新"
 key b
@@ -346,7 +346,7 @@ page "今天想做什么"
 choose 2 "备份这台 Mac"
 page "备份位置"
 choose 1 ""
-page "开始备份"
+confirmation "开始备份" "开始备份"
 key b
 page "备份位置"
 key b
@@ -380,7 +380,7 @@ close $sums
 key "$env(TEST_SNAPSHOT)\r"
 page "恢复方式"
 choose 1 ""
-page "确认恢复上述个人数据"
+confirmation "确认恢复上述个人数据" "确认恢复上述个人数据"
 key b
 page "恢复方式"
 key b
@@ -403,13 +403,16 @@ key " "
 page "选择要处理的应用差异"
 see "Enter 保存"
 key "\r"
-page "确认写入配置清单"
+confirmation "确认写入配置清单" "确认写入配置清单"
 key b
 page "选择要处理的应用差异"
 see "Enter 保存"
 key "\r"
+see "确认操作"
 see "追加 1 个软件条目"
-see "q 退出"
+see "y / Enter：确认写入配置清单"
+see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
+see {\x1b\[[0-9]+;1H\x1b\[1;36m确认写入配置清单}
 key b
 page "选择要处理的应用差异"
 see "Enter 保存"
@@ -424,7 +427,7 @@ key " "
 page "选择要处理的应用差异"
 see "Enter 保存"
 key "\r"
-page "确认写入配置清单"
+confirmation "确认写入配置清单" "确认写入配置清单"
 key y
 see "清单更新结果"
 see "失败.*cask.*demo"
@@ -446,8 +449,42 @@ key q
 see TTY_RESTORED
 done
 EOF
+cat >"$SANDBOX/repo/scripts/confirm-scroll-test.sh" <<'EOF'
+#!/bin/sh
+# shellcheck source=common.sh
+. "$(dirname "$0")/common.sh"
+confirm_action "开始备份？" "说明第一行
+说明第二行
+说明第三行
+说明第四行
+说明第五行
+说明第六行
+说明第七行
+说明第八行
+说明第九行
+说明第十行
+说明第十一行"
+EOF
+expect <<'EOF'
+source $env(TEST_UI_HELPERS)
+spawn sh "$env(TEST_REPO)/scripts/confirm-scroll-test.sh"
+stty rows 16 columns 48 < $spawn_out(slave,name)
+see "确认操作"
+see "说明第一行"
+see {\x1b\[14;1H\x1b\[90my / Enter：开始备份}
+see {\x1b\[15;1H\x1b\[90mb 返回 · q 退出}
+see {\x1b\[13;1H\x1b\[1;36m开始备份}
+key "\033\[6~"
+see "确认操作"
+see "说明第九行"
+see {\x1b\[14;1H\x1b\[90my / Enter：开始备份}
+see {\x1b\[15;1H\x1b\[90mb 返回 · q 退出}
+see {\x1b\[13;1H\x1b\[1;36m开始备份}
+key b
+done 3
+EOF
 [ ! -f "$TEST_EXECUTED" ] || fail '取消或状态变化时执行了操作'
-pass '方向键单选、即时返回退出、清屏页脚、窄窗口和终端恢复'
+pass '方向键单选、确认提示固定底部、即时返回退出、窄窗口和终端恢复'
 
 export TEST_BACKUP_DEST="$SANDBOX/backup-destination"
 cat >"$SANDBOX/repo/scripts/backup.sh" <<'EOF'
@@ -471,7 +508,7 @@ page "备份位置"
 choose 2 "输入其他目录"
 page "输入备份根目录"
 key "$env(TEST_SNAPSHOT)/custom bq 备份误\177\r"
-page "开始备份"
+confirmation "开始备份" "开始备份"
 key "\r"
 see "测试备份完成"
 see "q 退出"
@@ -484,7 +521,7 @@ page "输入快照路径"
 key "$env(TEST_SNAPSHOT)\r"
 page "恢复方式"
 choose 1 ""
-page "确认恢复上述个人数据"
+confirmation "确认恢复上述个人数据" "确认恢复上述个人数据"
 key "\r"
 see "测试恢复完成"
 see "q 退出"
