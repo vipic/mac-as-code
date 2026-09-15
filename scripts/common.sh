@@ -795,7 +795,8 @@ checkbox_select_step() {
     ui_enter || { rm -f "$selection_original"; return 1; }
     while true; do
         ui_size
-        visible_rows=$(((UI_BODY_ROWS - 1) / 2))
+        # 每项预留两行，并给类型标题及分隔留出空间；翻页时重复当前类型标题。
+        visible_rows=$(((UI_BODY_ROWS - 1) / 3))
         [ "$visible_rows" -ge 1 ] || visible_rows=1
         first_row=$((((cursor - 1) / visible_rows) * visible_rows + 1))
         details_file="${MAC_AS_CODE_UI_DETAILS:-/dev/null}"
@@ -814,6 +815,16 @@ checkbox_select_step() {
                 }
                 return out
             }
+            function group(t) {
+                if(t=="defaults") return "系统设置"
+                if(t=="dock") return "Dock"
+                if(t=="brew") return "软件 / 环境 · Homebrew Formula"
+                if(t=="cask") return "软件 / 环境 · Homebrew Cask"
+                if(t=="mas") return "软件 / 环境 · App Store"
+                if(t=="recipe") return "软件 / 环境 · Recipe"
+                if(t=="github-release") return "软件 / 环境 · GitHub Releases"
+                return "其他项目 · " t
+            }
             BEGIN { split(types,arr,"|"); for(i in arr) want[arr[i]]=1 }
             FILENAME==ARGV[1] {
                 split($0,d,"\t"); descriptions[d[1] SUBSEP d[2]]=d[5]; statuses[d[1] SUBSEP d[2]]=d[3]; next
@@ -822,6 +833,10 @@ checkbox_select_step() {
                 split($0,p,"|"); if(!want[p[2]]) next
                 idx++; if(p[1]=="ON") selected++
                 if(idx<first || idx>=first+rows) next
+                if(p[2]!=last_type) {
+                    printf "── %s ──\n",clip(group(p[2]))
+                    last_type=p[2]
+                }
                 label=(p[2]=="brew" || p[2]=="cask" || p[2]=="mas") ? p[3] : p[4]
                 detail=descriptions[p[2] SUBSEP p[3]]
                 if(p[2]=="audit") detail=p[5]

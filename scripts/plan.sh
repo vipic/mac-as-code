@@ -12,12 +12,24 @@ work_dir="$(mktemp -d -t mac-as-code-plan-build.XXXXXX)"
 trap 'rm -rf "$work_dir"; cleanup' EXIT HUP INT TERM
 build_catalog
 create_default_plan "$BREWFILE" "$work_dir/full.plan" "${MAC_AS_CODE_CONFIG_DIR:-$ROOT_DIR/config}"
-: >"$output_plan"
-: >"$output_details"
+brew_available=0
+if command -v brew >/dev/null 2>&1; then
+    brew_available=1
+    brew list --formula --full-name >"$work_dir/formulae" 2>/dev/null || {
+        echo "❌ 无法读取 Homebrew formula 安装清单，已停止检测。" >&2
+        exit 1
+    }
+    brew list --cask --full-name >"$work_dir/casks" 2>/dev/null || {
+        echo "❌ 无法读取 Homebrew cask 安装清单，已停止检测。" >&2
+        exit 1
+    }
+fi
 mas_readable=0
 if command -v mas >/dev/null 2>&1 && mas list >"$work_dir/mas" 2>/dev/null; then
     mas_readable=1
 fi
+: >"$output_plan"
+: >"$output_details"
 # 以注解项为执行单位；同一项中的多个键只产生一个操作。
 while IFS='|' read -r _state item_type item_name item_extra; do
     item_status=manual
@@ -52,10 +64,15 @@ while IFS='|' read -r _state item_type item_name item_extra; do
             item_label="$item_name"
             item_status=pending
             item_detail="未检测到 → 安装（${item_type}）"
-            if command -v brew >/dev/null 2>&1; then
+            if [ "$brew_available" -eq 1 ]; then
+                installed_file="$work_dir/formulae"
                 brew_kind=--formula
-                [ "$item_type" != cask ] || brew_kind=--cask
-                if brew list "$brew_kind" "$item_name" >/dev/null 2>&1; then
+                if [ "$item_type" = cask ]; then
+                    installed_file="$work_dir/casks"
+                    brew_kind=--cask
+                fi
+                # 批量清单显示规范名；未匹配时保留 Homebrew 的别名解析。
+                if grep -Fqx -e "$item_name" "$installed_file" || brew list "$brew_kind" "$item_name" >/dev/null 2>&1; then
                     item_status=met
                     item_detail="已安装"
                 elif [ "$item_type" = cask ] && cask_application_exists "$item_name"; then

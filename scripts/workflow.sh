@@ -83,7 +83,28 @@ adjust_selection() {
 }
 
 show_details() {
-    notice "差异详情" "$(awk -F '\t' '$3 != "met" { print $4; print "  " $5; print "" }' "$FLOW_DETAILS")"
+    notice "差异详情" "$(awk -F '\t' '
+        function group(t) {
+            if (t == "defaults") return "系统设置"
+            if (t == "dock") return "Dock"
+            if (t == "brew") return "软件 / 环境 · Homebrew Formula"
+            if (t == "cask") return "软件 / 环境 · Homebrew Cask"
+            if (t == "mas") return "软件 / 环境 · App Store"
+            if (t == "recipe") return "软件 / 环境 · Recipe"
+            if (t == "github-release") return "软件 / 环境 · GitHub Releases"
+            return "其他项目 · " t
+        }
+        $3 != "met" {
+            if ($1 != last_type) {
+                if (last_type != "") print ""
+                print "── " group($1) " ──"
+                last_type = $1
+            }
+            print $4 ($3 == "manual" ? " [需确认]" : "")
+            print "  " $5
+            print ""
+        }
+    ' "$FLOW_DETAILS")"
 }
 
 show_summary() {

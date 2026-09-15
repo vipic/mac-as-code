@@ -32,8 +32,11 @@ defaults write Dock ResetLaunchPad -int 1
 EOF
 cat >"$MAC_AS_CODE_BREWFILE" <<'EOF'
 brew "installed"
+brew "alias"
 brew "missing"
 cask "present-cask"
+cask "alias-cask"
+cask "external-cask"
 mas "Store App", id: 123
 EOF
 cat >"$MAC_AS_CODE_GITHUB_APPS_CONFIG" <<'EOF'
@@ -58,9 +61,17 @@ awk -F '|' -v d="$2" -v k="$3" '$1==d && $2==k {print $3; found=1} END {exit fou
 EOF
 cat >"$SANDBOX/bin/brew" <<'EOF'
 #!/bin/sh
+printf '%s\n' "$*" >>"$TEST_BREW_CALLS"
 case "$*" in
-    'list --formula installed'|'list --cask present-cask'|'list --cask codex') exit 0 ;;
-    'list --formula missing') exit 1 ;;
+    'list --formula --full-name')
+        [ "${TEST_BREW_FAIL_FORMULA:-0}" -eq 0 ] || exit 1
+        printf 'installed\n'; exit 0 ;;
+    'list --cask --full-name')
+        [ "${TEST_BREW_FAIL_CASK:-0}" -eq 0 ] || exit 1
+        printf 'present-cask\n'; exit 0 ;;
+    'list --formula alias'|'list --cask alias-cask'|'list --cask codex') exit 0 ;;
+    'list --formula missing'|'list --cask external-cask') exit 1 ;;
+    'info --cask external-cask') printf '==> Artifacts\nDemo.app (App)\n'; exit 0 ;;
     *) echo "测试中禁止未声明的 brew 调用：$*" >&2; exit 99 ;;
 esac
 EOF
@@ -74,6 +85,7 @@ cat >"$SANDBOX/bin/curl" <<'EOF'
 exit 99
 EOF
 chmod +x "$SANDBOX/bin/"*
+export TEST_BREW_CALLS="$SANDBOX/brew-calls"
 fail() { echo "失败：$*" >&2; exit 1; }
 pass() { echo "通过：$*"; }
 sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/plan" "$SANDBOX/details"
@@ -87,9 +99,30 @@ grep -q '^ON|brew|missing|' "$SANDBOX/plan" || fail '未安装软件未进入计
 grep -q '^ON|github-release|missing|' "$SANDBOX/plan" || fail 'GitHub 软件未进入计划'
 ! grep -q '|demo|' "$SANDBOX/plan" || fail '已存在 GitHub 软件重复安装'
 ! grep -q '|installed|' "$SANDBOX/plan" || fail '已安装软件重复安装'
+! grep -q '|alias|' "$SANDBOX/plan" || fail 'Homebrew formula 别名被误判未安装'
+! grep -q '|alias-cask|' "$SANDBOX/plan" || fail 'Homebrew cask 别名被误判未安装'
+! grep -q '|external-cask|' "$SANDBOX/plan" || fail '手工安装 cask 重复安装'
 ! grep -q '|Store App|' "$SANDBOX/plan" || fail '已安装 MAS 应用重复安装'
 grep -q 'Two: 0 → 2' "$SANDBOX/details" || fail '缺少当前值与目标值'
+[ "$(grep -c '^list --formula --full-name$' "$TEST_BREW_CALLS")" -eq 1 ] || fail 'formula 清单未只读取一次'
+[ "$(grep -c '^list --cask --full-name$' "$TEST_BREW_CALLS")" -eq 1 ] || fail 'cask 清单未只读取一次'
+! grep -q '^list --formula installed$' "$TEST_BREW_CALLS" || fail '批量命中 formula 仍被逐项查询'
+! grep -q '^list --cask present-cask$' "$TEST_BREW_CALLS" || fail '批量命中 cask 仍被逐项查询'
+grep -q '^list --formula alias$' "$TEST_BREW_CALLS" || fail 'formula 别名未做回退验证'
+grep -q '^list --cask alias-cask$' "$TEST_BREW_CALLS" || fail 'cask 别名未做回退验证'
 pass '实时计划去重、折叠已满足项，并保留需确认项'
+
+if TEST_BREW_FAIL_FORMULA=1 sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/failed.plan" "$SANDBOX/failed.details" >"$SANDBOX/out" 2>&1; then
+    fail 'formula 清单读取失败后仍生成计划'
+fi
+grep -q '无法读取 Homebrew formula 安装清单' "$SANDBOX/out" || fail '缺少明确的 formula 清单错误'
+[ ! -e "$SANDBOX/failed.plan" ] && [ ! -e "$SANDBOX/failed.details" ] || fail 'formula 清单失败后生成了误导性结果'
+if TEST_BREW_FAIL_CASK=1 sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/failed.plan" "$SANDBOX/failed.details" >"$SANDBOX/out" 2>&1; then
+    fail 'Homebrew 清单读取失败后仍生成计划'
+fi
+grep -q '无法读取 Homebrew cask 安装清单' "$SANDBOX/out" || fail '缺少明确的清单错误'
+[ ! -e "$SANDBOX/failed.plan" ] && [ ! -e "$SANDBOX/failed.details" ] || fail '清单失败后生成了误导性结果'
+pass 'Homebrew 清单读取失败时明确停止'
 
 # 状态改变后下一次计划立即反映，不使用当天缓存。
 sed 's/Test|Two|0/Test|Two|2/' "$TEST_DEFAULTS_STATE" >"$SANDBOX/new"
@@ -214,8 +247,8 @@ n=0
 [ ! -f "$TEST_SCAN_COUNT" ] || n="$(cat "$TEST_SCAN_COUNT")"
 n=$((n+1))
 printf '%s' "$n" >"$TEST_SCAN_COUNT"
-printf 'ON|defaults|first|测试设置\n' >"$1"
-printf 'defaults\tfirst\tpending\t测试设置\t%s → 1\n' "$n" >"$2"
+printf 'ON|defaults|first|测试设置\nOFF|dock|layout|测试 Dock\nOFF|recipe|step|测试 Recipe\n' >"$1"
+printf 'defaults\tfirst\tpending\t测试设置\t%s → 1\ndock\tlayout\tmanual\t测试 Dock\t需确认\nrecipe\tstep\tmanual\t测试 Recipe\t需确认\n' "$n" >"$2"
 EOF
 cat >"$SANDBOX/repo/scripts/apply.sh" <<'EOF'
 #!/bin/sh
@@ -281,14 +314,21 @@ page "配置这台 Mac"
 choose 2 "调整选择"
 page "调整范围"
 choose 1 ""
-page "调整本次操作"
+see "调整本次操作"
+see "── 系统设置 ──"
+see "── Dock ──"
+see "软件 / 环境 · Recipe"
+see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
 see "Enter 保存"
 key b
 page "调整范围"
 key b
 page "配置这台 Mac"
 choose 3 "查看详情"
-page "差异详情"
+see "差异详情"
+see "── 系统设置 ──"
+see "── Dock ──"
+see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
 key b
 page "配置这台 Mac"
 choose 1 ""
