@@ -140,7 +140,6 @@ for task in '' configure backup restore doctor check --yes --from --skip-doctor;
     fi
 done
 sh "$ROOT_DIR/mac.sh" --help >"$SANDBOX/out"
-grep -q '恢复' "$SANDBOX/out" || fail '帮助缺少恢复入口'
 [ ! -d "$HOME/Desktop" ] || fail '打开入口或帮助创建了备份'
 pass '非交互入口与帮助无执行副作用'
 

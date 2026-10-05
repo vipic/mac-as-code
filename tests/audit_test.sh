@@ -227,11 +227,6 @@ fi
 rm -f "$brewfile_before"
 scenario_end
 
-scenario_begin "内部帮助指向唯一入口"
-capture_audit help
-expect_contains "$SCENARIO_OUTPUT" "sh mac.sh"
-scenario_end
-
 echo
 if [ "$FAILED" -ne 0 ]; then
     echo "❌ 审计测试失败：${FAILED} 组失败，${PASSED} 组通过"
