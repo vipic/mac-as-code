@@ -1,83 +1,87 @@
-# 需要 sudo 授权，所以提到前面
-cask "logi-options+"
-cask "rode-central"
-cask "squirrel-app"
+# macOS as Code — Brewfile
+# 按安装方式分组；组内按名称排序。注释项为可选 / 暂不安装，保留备查。
+# 修改后运行 sh mac.sh --check。
 
-# 必装：基础命令行工具
+# ── Homebrew formula：基础工具 ──────────────────────────────────────────────
 brew "btop"
 brew "ffmpeg"
 brew "gh"
 brew "gnupg"
-brew "ripgrep"
 brew "mas"
+brew "ripgrep"
 brew "starship"
 brew "tree"
 
-# 开发工具：运行时、包管理、服务调试
+# ── Homebrew formula：开发与运行时 ──────────────────────────────────────────
 brew "herdr"
 brew "http-server"
+brew "just"
+brew "mise"
 brew "mole"
 brew "node"
 brew "pnpm"
-brew "just"
-brew "mise"
 brew "python"
 
-# 可选：本地 AI / 大模型
+# ── Homebrew formula：其他 ─────────────────────────────────────────────────
+brew "can1357/tap/omp"
 brew "ollama"
+brew "pngquant"
 
-# 必装：账号、浏览器、效率工具
+# ── cask：系统工具（安装时需要 sudo） ──────────────────────────────────────
+cask "logi-options+"
+cask "rode-central"
+cask "squirrel-app"
+
+# ── cask：效率与系统增强 ───────────────────────────────────────────────────
 cask "1password"
-cask "brave-browser"
-cask "google-chrome"
-cask "chatgpt"
+cask "anomalyco/tap/hex"
+cask "applite"
 cask "cleanshot"
+cask "hammerspoon"
+cask "itsycal"
 cask "keyboard-maestro"
-cask "obsidian"
+cask "pulse"
 cask "raycast"
-cask "readdle-spark"
-cask "sublime-text"
-cask "telegram"
 cask "transnomino"
 
-# 开发工具：终端、调试、容器、API 客户端
+# ── cask：浏览器、通讯与 AI ────────────────────────────────────────────────
+cask "brave-browser"
+cask "chatgpt"
+cask "deepseek-harness"
+cask "t3-code"
+cask "telegram"
+cask "vibe-island"
+
+# ── cask：开发、终端与文件工具 ─────────────────────────────────────────────
 cask "android-platform-tools"
 cask "charles"
-# cask "insomnia"
+cask "codex"
 cask "font-maple-mono-normal-nf-cn"
 cask "ghostty"
+cask "herdr-gpui"
 cask "iterm2"
-# cask "jetbrains-toolbox"
+cask "openmtp"
 cask "orbstack"
+cask "sourcetree"
+cask "sublime-text"
 
-# 媒体、创作、阅读
-# cask "anki"
-# cask "blender"
-# cask "chatwise"
+# ── cask：媒体、创作与阅读 ─────────────────────────────────────────────────
+cask "calibre"
+cask "compositor"
 cask "devonthink"
 cask "downie"
 cask "iina"
 cask "netnewswire"
-brew "pngquant"
+cask "obsidian"
+cask "qbittorrent"
 cask "skim"
 
-# 并非每个电脑都安装
-# cask "calibre"
-cask "qbittorrent"
-cask "vibe-island"
-# cask "wireshark"
-
-
-# App Store 应用
+# ── App Store（mas） ───────────────────────────────────────────────────────
 # 以这里为准；mas.sh 会读取本 Brewfile 中启用的 mas 条目，不再维护第二份列表。
 # mas 应用是跟随苹果账号的，如果 id 并不符合当前登录的账号，则无法安装。
 
-# 可选：专业软件 / 大体积软件
-# mas "Adobe Lightroom", id: 1451544217
 mas "Blackmagic Disk Speed Test", id: 425264550
 mas "DaVinci Resolve", id: 571213070
-
-# 必装：日常 App Store 应用
 mas "Drafts", id: 1435957248
 mas "Infuse", id: 1136220934
 mas "Keynote: Design Presentations", id: 361285480
@@ -87,10 +91,16 @@ mas "The Unarchiver", id: 425424353
 mas "WeChat", id: 836500024
 mas "Xcode", id: 497799835
 
+# ── 可选 / 暂不安装 ───────────────────────────────────────────────────────
+# cask "anki"
+# cask "blender"
+# cask "chatwise"
+# cask "google-chrome"
+# cask "insomnia"
+# cask "jetbrains-toolbox"
+# cask "wireshark"
+
+# ── 自动追加区 ─────────────────────────────────────────────────────────────
+# 「将本机软件加入配置清单」会把新项写在这里；可按用途移动到上方分组。
 # audit-added:start
-# 通过配置菜单确认加入；可按用途移动到上方分类。
-brew "can1357/tap/omp"
-cask "codex"
-cask "sourcetree"
-cask "zcode"
 # audit-added:end
