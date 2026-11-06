@@ -22,7 +22,7 @@ while [ "$#" -gt 0 ]; do
             shift
             ;;
         *)
-            echo "❌ 未知参数：$1"
+            echo "[fail] 未知参数：$1"
             usage
             exit 1
             ;;
@@ -30,15 +30,15 @@ while [ "$#" -gt 0 ]; do
 done
 
 pass() {
-    echo "✅ $1"
+    echo "[ok] $1"
 }
 
 warn() {
-    echo "⚠️  $1"
+    echo "[warn] $1"
 }
 
 fail() {
-    echo "❌ $1"
+    echo "[fail] $1"
     FAILED=1
 }
 
@@ -120,15 +120,15 @@ check_installed() {
 
 case "$MODE" in
     pre)
-        echo "🩺 doctor（装机前：硬门槛）"
+        echo "doctor（装机前：硬门槛）"
         check_prereqs
         ;;
     post)
-        echo "🩺 doctor（装机后：验收）"
+        echo "doctor（装机后：验收）"
         check_installed
         ;;
     all)
-        echo "🩺 doctor（全部检查）"
+        echo "doctor（全部检查）"
         check_prereqs
         check_installed
         ;;

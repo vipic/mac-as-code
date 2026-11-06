@@ -59,7 +59,7 @@ persist_results_log() {
     mkdir -p "$log_dir"
     log_file="$log_dir/${prefix}-$(date +%Y%m%d-%H%M%S).tsv"
     /usr/bin/ditto "$file" "$log_file"
-    echo "📄 结果已保存：${log_file}"
+    echo "结果已保存：${log_file}"
 }
 
 # 打印成功 / 失败 / 跳过汇总
@@ -283,7 +283,7 @@ list_recipe_items() {
             meta_id="${meta%%|*}"
             label="${meta#*|}"
             if [ "$meta_id" != "$id" ]; then
-                echo "⚠️  Recipe ${f}：项头 id「${meta_id}」与文件名「${id}」不一致，以文件名为准" >&2
+                echo "[warn] Recipe ${f}：项头 id「${meta_id}」与文件名「${id}」不一致，以文件名为准" >&2
             fi
             [ -n "$label" ] || label="$id"
         else
@@ -644,8 +644,8 @@ ui_frame() {
     esac
     UI_FRAME_OUTPUT="$(
         printf '\033[?25l\033[1;1H\033[1;36mmac-as-code\033[0m\033[K'
-        printf '\033[2;1H\033[90m%s\033[0m\033[K' "$(printf '%s\n' '让每一台 Mac，都回到你的习惯。' | ui_clip "$UI_COLS")"
-        printf '\033[3;1H\033[90m%s\033[0m\033[K' "$(printf '%s\n' '以配置清单为准，确认后再执行。' | ui_clip "$UI_COLS")"
+        printf '\033[2;1H\033[90m%s\033[0m\033[K' "$(printf '%s\n' 'macOS 配置、备份与恢复' | ui_clip "$UI_COLS")"
+        printf '\033[3;1H\033[90m%s\033[0m\033[K' "$(printf '%s\n' '以配置清单为准，确认后执行' | ui_clip "$UI_COLS")"
         printf '\033[4;1H\033[K\033[5;1H\033[1m%s\033[0m\033[K' "$(printf '%s\n' "$1" | ui_clip "$UI_COLS")"
         printf '%s\n' "$2" | awk -v count="$UI_BODY_ROWS" '
             NR <= count { printf "\033[%d;1H%s\033[K", NR+5, $0 }

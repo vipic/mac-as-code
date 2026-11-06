@@ -51,7 +51,7 @@ build_catalog_for_file() {
     group="$1"
     file="$2"
     if [ ! -f "$file" ]; then
-        echo "❌ 配置文件不存在：$file" >&2
+        echo "[fail] 配置文件不存在：$file" >&2
         return 1
     fi
 
@@ -251,7 +251,7 @@ cache_is_fresh() {
 invalidate_cache() {
     rm -f "$CACHE_STAMP" "$CACHE_DEFAULTS" "$CACHE_APPS" "$CACHE_CHANGES" "$CACHE_ALL" "$CACHE_ACTIONS"
     if [ "$QUIET" -eq 0 ]; then
-        echo "✅ 已使审计缓存失效"
+        echo "[ok] 已使审计缓存失效"
     fi
 }
 
@@ -283,7 +283,7 @@ refresh_cache() {
         return 1
     }
 
-    echo "🔄 正在实时查询配置和软件状态，并更新今日缓存..."
+    echo "正在实时查询配置和软件状态，并更新今日缓存..."
     TABLE_AGGREGATE_FILE="$aggregate_temp"
     ACTIONS_FILE="$actions_temp"
     : >"$ACTIONS_FILE"
@@ -294,7 +294,7 @@ refresh_cache() {
         TABLE_AGGREGATE_FILE=""
         ACTIONS_FILE=""
         rm -f "$defaults_temp" "$apps_temp" "$changes_temp" "$all_temp" "$actions_temp" "$aggregate_temp" "$stamp_temp"
-        echo "❌ 实时审计失败，未替换现有缓存" >&2
+        echo "[fail] 实时审计失败，未替换现有缓存" >&2
         return 1
     fi
     TABLE_AGGREGATE_FILE=""
@@ -433,7 +433,7 @@ audit_defaults() {
                 command_text="defaults write ${domain} ${key} -${value_type} $(print_shell_quoted "$expected")"
                 table_row "$defaults_table" \
                     "$group_label" \
-                    "⚠ 与仓库不同 · $label" \
+                    "[warn] 与仓库不同 · $label" \
                     "$(print_value "$current")" \
                     "$(print_value "$expected")" \
                     "$command_text"
@@ -455,10 +455,10 @@ audit_defaults() {
     done <"$CATALOG"
 
     if [ "$mismatch_count" -eq 0 ]; then
-        table_row "$defaults_table" "系统配置 / Dock" "✓ 与仓库一致" "—" "—" "无需操作"
+        table_row "$defaults_table" "系统配置 / Dock" "[ok] 与仓库一致" "—" "—" "无需操作"
     fi
     table_render "$defaults_table" yes
-    audit_note "统计：与仓库一致 ${matched_count}，⚠ 与仓库不同 ${mismatch_count}，无法自动比较 ${unsupported_count}"
+    audit_note "统计：与仓库一致 ${matched_count}，[warn] 与仓库不同 ${mismatch_count}，无法自动比较 ${unsupported_count}"
 }
 
 desired_contains() {
@@ -511,20 +511,20 @@ build_cask_artifact_catalog() {
     output_file="$1"
     if [ -n "${MAC_AS_CODE_CASK_ARTIFACTS_FILE:-}" ]; then
         if [ ! -f "$MAC_AS_CODE_CASK_ARTIFACTS_FILE" ]; then
-            echo "❌ 测试用 cask artifact 清单不存在：$MAC_AS_CODE_CASK_ARTIFACTS_FILE" >&2
+            echo "[fail] 测试用 cask artifact 清单不存在：$MAC_AS_CODE_CASK_ARTIFACTS_FILE" >&2
             return 1
         fi
         cat "$MAC_AS_CODE_CASK_ARTIFACTS_FILE" >"$output_file"
         return 0
     fi
     if ! command -v curl >/dev/null 2>&1; then
-        echo "❌ 缺少 curl，无法读取 Homebrew cask 清单" >&2
+        echo "[fail] 缺少 curl，无法读取 Homebrew cask 清单" >&2
         return 1
     fi
     catalog_json="$(mktemp -t mac-as-code-cask-catalog.XXXXXX)" || return 1
     if ! curl -fsSL https://formulae.brew.sh/api/cask.json -o "$catalog_json"; then
         rm -f "$catalog_json"
-        echo "❌ 无法读取 Homebrew cask 清单，未完成手工安装应用匹配" >&2
+        echo "[fail] 无法读取 Homebrew cask 清单，未完成手工安装应用匹配" >&2
         return 1
     fi
     if ! brew ruby -rjson -e '
@@ -540,7 +540,7 @@ build_cask_artifact_catalog() {
         end
     ' "$catalog_json" >"$output_file"; then
         rm -f "$catalog_json"
-        echo "❌ 无法解析 Homebrew cask 清单" >&2
+        echo "[fail] 无法解析 Homebrew cask 清单" >&2
         return 1
     fi
     rm -f "$catalog_json"
@@ -612,7 +612,7 @@ EOF
         grep -Fqx "$selected_cask" "$seen_casks" && continue
         printf '%s\n' "$selected_cask" >>"$seen_casks"
         MANUAL_CASK_COUNT=$((MANUAL_CASK_COUNT + 1))
-        table_row "$apps_table_file" "⚠ 与仓库不同" "cask" "$selected_cask" \
+        table_row "$apps_table_file" "[warn] 与仓库不同" "cask" "$selected_cask" \
             "已安装 ${app_filename}（非 Homebrew）" "未登记；可追加"
         record_action add-manual-cask cask "$selected_cask" "$app_filename"
     done <"$local_apps"
@@ -629,7 +629,7 @@ mas_application_exists() {
 
 audit_apps() {
     if [ ! -f "$BREWFILE" ] || [ ! -f "$GITHUB_APPS_CONFIG" ]; then
-        echo "❌ 应用清单不存在" >&2
+        echo "[fail] 应用清单不存在" >&2
         return 1
     fi
     desired="$(mktemp -t mac-as-code-apps.XXXXXX)" || return 1
@@ -682,7 +682,7 @@ audit_apps() {
                 elif command -v brew >/dev/null 2>&1 && cask_application_exists "$name"; then
                     installed=1
                     unmanaged_present=$((unmanaged_present + 1))
-                    table_row "$apps_table" "⚠ 安装方式不同" "cask" "$name" "应用存在（非 Homebrew）" "已登记"
+                    table_row "$apps_table" "[warn] 安装方式不同" "cask" "$name" "应用存在（非 Homebrew）" "已登记"
                 elif ! command -v brew >/dev/null 2>&1; then
                     unavailable=1
                 fi
@@ -701,7 +701,7 @@ audit_apps() {
             present=$((present + 1))
         else
             missing=$((missing + 1))
-            table_row "$apps_table" "⚠ 与仓库不同" "$package_type" "$name" "未检测到" "已登记"
+            table_row "$apps_table" "[warn] 与仓库不同" "$package_type" "$name" "未检测到" "已登记"
         fi
     done <"$desired"
 
@@ -724,7 +724,7 @@ audit_apps() {
             while IFS='|' read -r package_type name || [ -n "${package_type:-}" ]; do
                 [ -n "${package_type:-}" ] || continue
                 extra=$((extra + 1))
-                table_row "$apps_table" "⚠ 与仓库不同" "$package_type" "$name" "已安装" "未登记；可追加"
+                table_row "$apps_table" "[warn] 与仓库不同" "$package_type" "$name" "已安装" "未登记；可追加"
                 record_action add-brewfile "$package_type" "$name"
             done <"$extra_file"
             rm -f "$extra_file"
@@ -742,7 +742,7 @@ audit_apps() {
             )"
             if ! awk -F'|' -v wanted="$app_id" '$1 == "mas" && $3 == wanted { found = 1 } END { exit found ? 0 : 1 }' "$desired"; then
                 extra=$((extra + 1))
-                table_row "$apps_table" "⚠ 与仓库不同" "mas" "$name" "已安装" "未登记；可追加"
+                table_row "$apps_table" "[warn] 与仓库不同" "mas" "$name" "已安装" "未登记；可追加"
                 record_action add-brewfile mas "$name" "$app_id"
             fi
         done <"$installed_mas"
@@ -768,17 +768,17 @@ audit_apps() {
             present=$((present + 1))
         else
             missing=$((missing + 1))
-            table_row "$apps_table" "⚠ 与仓库不同" "GitHub" "$label" "未检测到" "已登记"
+            table_row "$apps_table" "[warn] 与仓库不同" "GitHub" "$label" "未检测到" "已登记"
         fi
     done <<EOF
 $(parse_github_release_apps "$GITHUB_APPS_CONFIG")
 EOF
 
     if [ "$missing" -eq 0 ] && [ "$extra" -eq 0 ]; then
-        table_row "$apps_table" "✓ 与仓库一致" "—" "全部已登记软件" "与清单一致" "无需操作"
+        table_row "$apps_table" "[ok] 与仓库一致" "—" "全部已登记软件" "与清单一致" "无需操作"
     fi
     table_render "$apps_table" yes
-    audit_note "统计：已登记且检测到 ${present}（非 Homebrew 管理 ${unmanaged_present}）；⚠ 清单有但本机缺失 ${missing}，⚠ 本机有但未登记 ${extra}，cask 匹配待确认 ${ambiguous_cask_count}"
+    audit_note "统计：已登记且检测到 ${present}（非 Homebrew 管理 ${unmanaged_present}）；[warn] 清单有但本机缺失 ${missing}，[warn] 本机有但未登记 ${extra}，cask 匹配待确认 ${ambiguous_cask_count}"
     if [ "$unavailable" -eq 1 ]; then
         audit_note "说明：缺少相应包管理器的条目按「未检测到」显示。"
     fi
@@ -821,7 +821,7 @@ snapshot_defaults() {
     /usr/bin/ditto "$snapshot_temp" "$BASELINE_FILE"
     rm -f "$snapshot_temp"
     if [ "$QUIET" -eq 0 ]; then
-        echo "✅ 已记录初始化配置基线：$BASELINE_FILE"
+        echo "[ok] 已记录初始化配置基线：$BASELINE_FILE"
     fi
 }
 
@@ -874,7 +874,7 @@ audit_changes() {
             "$(print_value "$current")"
     done <"$BASELINE_FILE"
     if [ "$changed" -eq 0 ]; then
-        table_row "$changes_table" "系统配置 / Dock" "✓ 初始化后无变化" "—" "—"
+        table_row "$changes_table" "系统配置 / Dock" "[ok] 初始化后无变化" "—" "—"
     fi
     table_render "$changes_table" yes
     audit_note "统计：初始化后变化 ${changed}，未变化 ${unchanged}"
@@ -938,7 +938,7 @@ append_brewfile_entry() {
         brew|cask)
             case "$name" in
                 ''|*[!A-Za-z0-9@+_.:/-]*)
-                    echo "❌ 软件包名称包含 Brewfile 不支持的字符：$name" >&2
+                    echo "[fail] 软件包名称包含 Brewfile 不支持的字符：$name" >&2
                     return 1
                     ;;
             esac
@@ -947,7 +947,7 @@ append_brewfile_entry() {
         mas)
             case "$app_id" in
                 ''|*[!0-9]*)
-                    echo "❌ App Store ID 无效：$app_id" >&2
+                    echo "[fail] App Store ID 无效：$app_id" >&2
                     return 1
                     ;;
             esac
@@ -955,7 +955,7 @@ append_brewfile_entry() {
             entry="mas \"${escaped_name}\", id: ${app_id}"
             ;;
         *)
-            echo "❌ 不支持写入 Brewfile 的来源：$package_type" >&2
+            echo "[fail] 不支持写入 Brewfile 的来源：$package_type" >&2
             return 1
             ;;
     esac
@@ -985,7 +985,7 @@ append_brewfile_entry() {
     if ! sh "$SCRIPTS_DIR/check_format.sh" "$BREWFILE"; then
         /usr/bin/ditto "$backup" "$BREWFILE"
         rm -f "$edited" "$backup"
-        echo "❌ Brewfile 校验失败，已恢复原文件" >&2
+        echo "[fail] Brewfile 校验失败，已恢复原文件" >&2
         return 1
     fi
     rm -f "$edited" "$backup"
@@ -999,26 +999,26 @@ execute_append_action() {
     case "$_append_action_type" in
         add-brewfile)
             if brewfile_entry_exists "$_append_package_type" "$_append_name" "$_append_metadata"; then
-                echo "ℹ️  $_append_name 已在 Brewfile 中，无需重复加入。"
+                echo "[info] $_append_name 已在 Brewfile 中，无需重复加入。"
                 return 0
             fi
             case "$_append_package_type" in
                 brew)
                     if ! command -v brew >/dev/null 2>&1 || ! brew list --formula "$_append_name" >/dev/null 2>&1; then
-                        echo "❌ $_append_name 已不是本机安装的 Homebrew formula，请重新审计" >&2
+                        echo "[fail] $_append_name 已不是本机安装的 Homebrew formula，请重新审计" >&2
                         return 1
                     fi
                     ;;
                 cask)
                     if ! command -v brew >/dev/null 2>&1 || ! brew list --cask "$_append_name" >/dev/null 2>&1; then
-                        echo "❌ $_append_name 已不是本机安装的 Homebrew cask，请重新审计" >&2
+                        echo "[fail] $_append_name 已不是本机安装的 Homebrew cask，请重新审计" >&2
                         return 1
                     fi
                     ;;
                 mas)
                     if ! command -v mas >/dev/null 2>&1 ||
                         ! mas list 2>/dev/null | awk -v wanted="$_append_metadata" '$1 == wanted { found = 1 } END { exit found ? 0 : 1 }'; then
-                        echo "❌ $_append_name 已不是本机可检测的 App Store 应用，请重新审计" >&2
+                        echo "[fail] $_append_name 已不是本机可检测的 App Store 应用，请重新审计" >&2
                         return 1
                     fi
                     ;;
@@ -1027,21 +1027,21 @@ execute_append_action() {
             ;;
         add-manual-cask)
             if ! command -v brew >/dev/null 2>&1 || ! brew info --cask "$_append_name" >/dev/null 2>&1; then
-                echo "❌ Homebrew 已无法找到 cask：${_append_name}，请重新审计" >&2
+                echo "[fail] Homebrew 已无法找到 cask：${_append_name}，请重新审计" >&2
                 return 1
             fi
             if [ ! -d "$APPLICATIONS_DIR/$_append_metadata" ]; then
-                echo "❌ 本机已找不到 ${_append_metadata}，请重新审计" >&2
+                echo "[fail] 本机已找不到 ${_append_metadata}，请重新审计" >&2
                 return 1
             fi
             if brewfile_entry_exists cask "$_append_name"; then
-                echo "ℹ️  $_append_name 已在 Brewfile 中，无需重复加入。"
+                echo "[info] $_append_name 已在 Brewfile 中，无需重复加入。"
                 return 0
             fi
             append_brewfile_entry cask "$_append_name"
             ;;
         *)
-            echo "❌ 未知追加动作：$_append_action_type" >&2
+            echo "[fail] 未知追加动作：$_append_action_type" >&2
             return 1
             ;;
     esac
@@ -1051,7 +1051,7 @@ append_selected_items() {
     if [ ! -t 0 ]; then
         print_cached_result all
         echo
-        echo "ℹ️  当前不是交互终端；只完成审计，没有进入应用差异多选。"
+        echo "[info] 当前不是交互终端；只完成审计，没有进入应用差异多选。"
         return 0
     fi
     selection_plan="$(mktemp -t mac-as-code-audit-selection.XXXXXX)" || return 1

@@ -12,7 +12,7 @@ FOUND_COUNT=0
 FAIL_COUNT=0
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "❌ 未找到 GitHub Releases 应用清单：${CONFIG_FILE}"
+    echo "[fail] 未找到 GitHub Releases 应用清单：${CONFIG_FILE}"
     exit 1
 fi
 
@@ -36,12 +36,12 @@ $(parse_github_release_apps "$CONFIG_FILE")
 EOF
 
 if [ -n "$TARGET_ID" ] && [ "$FOUND_COUNT" -eq 0 ]; then
-    echo "❌ 清单中没有 GitHub Releases 应用：${TARGET_ID}"
+    echo "[fail] 清单中没有 GitHub Releases 应用：${TARGET_ID}"
     exit 2
 fi
 
 if [ "$FOUND_COUNT" -eq 0 ]; then
-    echo "ℹ️  GitHub Releases 应用清单为空"
+    echo "[info] GitHub Releases 应用清单为空"
     exit 0
 fi
 

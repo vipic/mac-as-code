@@ -154,13 +154,13 @@ configure() {
     while true; do
         summary_text="$(show_summary)"
         menu "配置这台 Mac" "$summary_text" back \
-            "从仓库配置电脑" \
-            "从电脑同步到仓库"
+            "根据仓库配置此电脑" \
+            "将该电脑软件同步到仓库"
         case "$answer" in
             b) return 0 ;;
             1)
                 while true; do
-                    menu "从仓库配置电脑" "选择要应用的范围；列表可直接空格切换，回车执行。" back \
+                    menu "根据仓库配置此电脑" "选择范围。空格切换，Enter 执行。" back \
                         "配置" \
                         "软件" \
                         "Recipe" \
@@ -213,7 +213,7 @@ configure() {
                 merge_selection
                 cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
                 ;;
-            *) echo "请选择任务编号，或 q 退出。" ;;
+            *) echo "无效选择。" ;;
         esac
     done
 }
@@ -325,7 +325,7 @@ restore() {
                         continue
                     fi
                     ;;
-                *) echo "请选择恢复方式。"; continue ;;
+                *) echo "无效选择。"; continue ;;
             esac
             confirm "确认恢复上述个人数据？" "$snapshot_preview
 将保留被覆盖的文件 / 偏好副本；TextFlash 使用 CLI 导入。恢复会退出相关应用。" || continue
@@ -343,16 +343,16 @@ while true; do
     retry_ready=0
     retry_available && retry_ready=1
     set -- \
-        "配置这台 Mac       查看差异、安装软件、应用设置" \
+        "配置这台 Mac       应用仓库配置、同步本机软件" \
         "" \
-        "备份个人数据       保存个人配置和应用数据" \
-        "恢复个人数据       恢复个人数据" \
+        "备份个人数据       保存配置与应用数据" \
+        "恢复个人数据       从快照恢复个人数据" \
         "" \
-        "检查环境           查看工具与安装状态"
+        "检查环境           核对工具与安装状态"
     if [ "$retry_ready" -eq 1 ]; then
-        set -- "$@" "重试上次失败项     重新检测并选中未完成的失败项"
+        set -- "$@" "重试上次失败项     重新检测未完成的失败项"
     fi
-    menu "今天想做什么？" "" root "$@"
+    menu "选择任务" "" root "$@"
     TARGET_PATH=""
     case "$answer" in
         1) configure || notice "配置未完成" "请查看执行结果，处理失败后可重试。" ;;

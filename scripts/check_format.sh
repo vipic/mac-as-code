@@ -48,11 +48,11 @@ EOF
 }
 
 pass() {
-    echo "  ✅ $1"
+    echo "  [ok] $1"
 }
 
 fail() {
-    echo "  ❌ $1"
+    echo "  [fail] $1"
     FAILED=1
 }
 
@@ -514,7 +514,7 @@ check_path() {
             ;;
         *)
             section "跳过：$path"
-            echo "  ℹ️  无法识别文件类型，跳过"
+            echo "  [info] 无法识别文件类型，跳过"
             FAILED=1
             ;;
     esac
@@ -534,12 +534,12 @@ assert_exit() {
     set +e
 
     if [ "$status" -eq "$expect" ]; then
-        echo "✅ PASS: ${case_name}"
+        echo "PASS: ${case_name}"
         if [ "$VERBOSE" = "1" ]; then
             sed 's/^/   /' "$out"
         fi
     else
-        echo "❌ FAIL: ${case_name} (expect exit ${expect}, actual ${status})"
+        echo "FAIL: ${case_name} (expect exit ${expect}, actual ${status})"
         sed 's/^/   /' "$out"
         SELF_FAILED=1
     fi
@@ -551,11 +551,11 @@ run_self_test() {
     SELF_FAILED=0
 
     if [ ! -d "$FIXTURES" ]; then
-        echo "❌ 找不到固定件目录：${FIXTURES}"
+        echo "[fail] 找不到固定件目录：${FIXTURES}"
         exit 1
     fi
 
-    echo "🧪 自测 check_format（固定件）..."
+    echo "自测 check_format（固定件）..."
     assert_exit "fixtures/good_defaults.sh" 0 sh "$SELF" "$FIXTURES/good_defaults.sh"
     assert_exit "fixtures/bad_defaults.sh" 1 sh "$SELF" "$FIXTURES/bad_defaults.sh"
     assert_exit "fixtures/good_Brewfile" 0 sh "$SELF" "$FIXTURES/good_Brewfile"
@@ -570,26 +570,26 @@ run_self_test() {
         sh "$SELF" "$FIXTURES/bad_github_release_apps.conf"
 
     echo
-    echo "🔍 再检查仓库 config..."
+    echo "再检查仓库 config..."
     set +e
     sh "$SELF"
     status=$?
     set +e
     RAN=$((RAN + 1))
     if [ "$status" -eq 0 ]; then
-        echo "✅ PASS: repo config"
+        echo "PASS: repo config"
     else
-        echo "❌ FAIL: repo config"
+        echo "FAIL: repo config"
         SELF_FAILED=1
     fi
 
     echo
     echo "================ 自测汇总 ================"
     if [ "$SELF_FAILED" -ne 0 ]; then
-        echo "❌ 自测未通过（共 ${RAN} 组）"
+        echo "[fail] 自测未通过（共 ${RAN} 组）"
         exit 1
     fi
-    echo "✅ 自测通过（共 ${RAN} 组）"
+    echo "[ok] 自测通过（共 ${RAN} 组）"
     exit 0
 }
 
@@ -616,7 +616,7 @@ while [ "$#" -gt 0 ]; do
             break
             ;;
         -*)
-            echo "❌ 未知参数：$1"
+            echo "[fail] 未知参数：$1"
             usage
             exit 1
             ;;
@@ -628,13 +628,13 @@ done
 
 if [ "$SELF_TEST" = "1" ]; then
     if [ "$#" -gt 0 ]; then
-        echo "❌ --self-test 不能与路径参数同用"
+        echo "[fail] --self-test 不能与路径参数同用"
         exit 1
     fi
     run_self_test
 fi
 
-echo "🔍 检查配置格式..."
+echo "检查配置格式..."
 
 if [ "$#" -eq 0 ]; then
     check_annotated_shell "$ROOT_DIR/config/defaults_config.sh" "config/defaults_config.sh"
@@ -657,8 +657,8 @@ fi
 
 echo
 if [ "$FAILED" -ne 0 ]; then
-    echo "❌ 格式检查未通过（已检查 ${CHECKED} 个文件）"
+    echo "[fail] 格式检查未通过（已检查 ${CHECKED} 个文件）"
     exit 1
 fi
-echo "✅ 格式检查通过（已检查 ${CHECKED} 个文件）"
+echo "[ok] 格式检查通过（已检查 ${CHECKED} 个文件）"
 exit 0

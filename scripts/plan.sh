@@ -16,11 +16,11 @@ brew_available=0
 if command -v brew >/dev/null 2>&1; then
     brew_available=1
     brew list --formula --full-name >"$work_dir/formulae" 2>/dev/null || {
-        echo "❌ 无法读取 Homebrew formula 安装清单，已停止检测。" >&2
+        echo "[fail] 无法读取 Homebrew formula 安装清单，已停止检测。" >&2
         exit 1
     }
     brew list --cask --full-name >"$work_dir/casks" 2>/dev/null || {
-        echo "❌ 无法读取 Homebrew cask 安装清单，已停止检测。" >&2
+        echo "[fail] 无法读取 Homebrew cask 安装清单，已停止检测。" >&2
         exit 1
     }
 fi

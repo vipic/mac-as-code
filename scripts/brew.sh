@@ -16,10 +16,10 @@ init_results
 #############################
 
 if ! command -v brew >/dev/null 2>&1; then
-    echo "🍺 安装 Homebrew..."
-    echo "🔐 安装 Homebrew 可能需要管理员密码，请留意终端或系统弹窗…"
+    echo "安装 Homebrew..."
+    echo "安装 Homebrew 可能需要管理员密码，请留意终端或系统弹窗…"
     if ! /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
-        echo "❌ Homebrew 安装失败"
+        echo "[fail] Homebrew 安装失败"
         record_result "FAIL" "Homebrew" "安装失败"
         finalize_results_if_owned
         exit 1
@@ -27,17 +27,17 @@ if ! command -v brew >/dev/null 2>&1; then
 
     # arm64 架构需要将 brew 加入环境变量
     if [ "$(uname -m)" = "arm64" ]; then
-        echo "🔧 配置 Apple Silicon 环境..."
+        echo "配置 Apple Silicon 环境..."
         eval "$(/opt/homebrew/bin/brew shellenv)"
     fi
     record_result "OK" "Homebrew" "安装成功"
 else
-    echo "✅ Homebrew 已安装"
+    echo "[ok] Homebrew 已安装"
     record_result "OK" "Homebrew" "已安装"
 fi
 
 if [ ! -f "$BREWFILE" ]; then
-    echo "❌ 未找到 Brewfile：$BREWFILE"
+    echo "[fail] 未找到 Brewfile：$BREWFILE"
     record_result "FAIL" "Brewfile" "文件不存在"
     finalize_results_if_owned
     exit 1
@@ -54,28 +54,28 @@ install_formula() {
     total="$3"
 
     if brew list --formula "$name" >/dev/null 2>&1; then
-        echo "✅ [$index/$total] $name 已安装，跳过"
+        echo "[ok] [$index/$total] $name 已安装，跳过"
         record_result "OK" "brew:$name" "已安装"
         return 0
     fi
 
-    echo "⬇️  [$index/$total] 正在下载：$name"
+    echo "[$index/$total] 正在下载：$name"
     if ! brew fetch --formula --deps "$name"; then
-        echo "❌ [$index/$total] 下载失败：$name"
+        echo "[fail] [$index/$total] 下载失败：$name"
         record_result "FAIL" "brew:$name" "下载失败"
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return 1
     fi
 
-    echo "📦 [$index/$total] 正在安装：$name"
+    echo "[$index/$total] 正在安装：$name"
     if ! brew install --formula "$name"; then
-        echo "❌ [$index/$total] 安装失败：$name"
+        echo "[fail] [$index/$total] 安装失败：$name"
         record_result "FAIL" "brew:$name" "安装失败"
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return 1
     fi
 
-    echo "✅ [$index/$total] $name 安装完成"
+    echo "[ok] [$index/$total] $name 安装完成"
     record_result "OK" "brew:$name" "安装成功"
     return 0
 }
@@ -86,30 +86,30 @@ install_cask() {
     total="$3"
 
     if brew list --cask "$name" >/dev/null 2>&1; then
-        echo "✅ [$index/$total] $name 已安装，跳过"
+        echo "[ok] [$index/$total] $name 已安装，跳过"
         record_result "OK" "cask:$name" "已安装"
         return 0
     fi
 
-    echo "⬇️  [$index/$total] 正在下载：$name"
+    echo "[$index/$total] 正在下载：$name"
     # brew fetch 的 --deps 与 --cask 互斥，cask 只拉自身安装包
     if ! brew fetch --cask "$name"; then
-        echo "❌ [$index/$total] 下载失败：$name"
+        echo "[fail] [$index/$total] 下载失败：$name"
         record_result "FAIL" "cask:$name" "下载失败"
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return 1
     fi
 
-    echo "📦 [$index/$total] 正在安装：$name"
-    echo "🔐 部分 cask 安装会弹出管理员验证，请在本机确认…"
+    echo "[$index/$total] 正在安装：$name"
+    echo "部分 cask 安装会弹出管理员验证，请在本机确认…"
     if ! brew install --cask "$name"; then
-        echo "❌ [$index/$total] 安装失败：$name"
+        echo "[fail] [$index/$total] 安装失败：$name"
         record_result "FAIL" "cask:$name" "安装失败"
         FAIL_COUNT=$((FAIL_COUNT + 1))
         return 1
     fi
 
-    echo "✅ [$index/$total] $name 安装完成"
+    echo "[ok] [$index/$total] $name 安装完成"
     record_result "OK" "cask:$name" "安装成功"
     return 0
 }
@@ -142,11 +142,11 @@ done <"$BREW_LIST"
 
 echo
 if [ "$BREW_TOTAL" -eq 0 ]; then
-    echo "ℹ️  未选中任何 Homebrew formula/cask，跳过软件安装循环"
+    echo "[info] 未选中任何 Homebrew formula/cask，跳过软件安装循环"
 else
-    echo "📦 按计划逐个安装软件（共 ${BREW_TOTAL}，Brewfile 中 formula ${FORMULA_TOTAL} + cask ${CASK_TOTAL}）..."
+    echo "按计划逐个安装软件（共 ${BREW_TOTAL}，Brewfile 中 formula ${FORMULA_TOTAL} + cask ${CASK_TOTAL}）..."
     echo "   单个失败会记录并继续，不会整批中断。"
-    echo "🔐 安装 GUI 应用（cask）时可能多次要求管理员密码，属正常情况。"
+    echo "安装 GUI 应用（cask）时可能多次要求管理员密码，属正常情况。"
 fi
 
 BREW_INDEX=0
@@ -182,13 +182,13 @@ fi
 
 if [ "$RUN_MAS" -eq 1 ]; then
     echo
-    echo "📱 处理 App Store 应用..."
+    echo "处理 App Store 应用..."
     if ! sh "$SCRIPTS_DIR/mas.sh"; then
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
 else
     echo
-    echo "⏭️  跳过 App Store 应用（未选中或已在开始时选择跳过）"
+    echo "[skip] 跳过 App Store 应用（未选中或已在开始时选择跳过）"
 fi
 
 finalize_results_if_owned

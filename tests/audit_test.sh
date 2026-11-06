@@ -151,10 +151,10 @@ expect_not_contains() {
 
 scenario_end() {
     if [ "$SCENARIO_FAILED" -eq 0 ]; then
-        echo "✅ PASS: $SCENARIO_NAME"
+        echo "PASS: $SCENARIO_NAME"
         PASSED=$((PASSED + 1))
     else
-        echo "❌ FAIL: $SCENARIO_NAME"
+        echo "FAIL: $SCENARIO_NAME"
         sed 's/^/   /' "$SCENARIO_OUTPUT"
         FAILED=$((FAILED + 1))
     fi
@@ -167,8 +167,8 @@ expect_contains "$SCENARIO_OUTPUT" "defaults write TestDomain MenuVisible -int '
 expect_contains "$SCENARIO_OUTPUT" "无法自动比较"
 expect_contains "$SCENARIO_OUTPUT" "当前值"
 expect_contains "$SCENARIO_OUTPUT" "仓库期望"
-expect_contains "$SCENARIO_OUTPUT" "⚠ 与仓库不同"
-expect_contains "$SCENARIO_OUTPUT" "与仓库一致 2，⚠ 与仓库不同 1"
+expect_contains "$SCENARIO_OUTPUT" "[warn] 与仓库不同"
+expect_contains "$SCENARIO_OUTPUT" "与仓库一致 2，[warn] 与仓库不同 1"
 scenario_end
 
 scenario_begin "应用审计覆盖包管理器差异和可匹配的手工安装应用"
@@ -180,7 +180,7 @@ expect_contains "$SCENARIO_OUTPUT" "应用存在（非 Homebrew）"
 expect_contains "$SCENARIO_OUTPUT" "manual-cask"
 expect_contains "$SCENARIO_OUTPUT" "本机"
 expect_contains "$SCENARIO_OUTPUT" "仓库清单"
-expect_contains "$SCENARIO_OUTPUT" "⚠ 与仓库不同"
+expect_contains "$SCENARIO_OUTPUT" "[warn] 与仓库不同"
 expect_contains "$SANDBOX/cache/actions.tsv" "add-brewfile"
 expect_contains "$SANDBOX/cache/actions.tsv" "add-manual-cask"
 expect_not_contains "$SANDBOX/cache/actions.tsv" "adopt-cask"
@@ -195,7 +195,7 @@ scenario_begin "当天缓存保持快照，refresh 后读取最新状态"
 capture_audit defaults
 expect_contains "$SCENARIO_OUTPUT" "defaults write TestDomain MenuVisible"
 capture_audit --refresh defaults
-expect_contains "$SCENARIO_OUTPUT" "与仓库一致 3，⚠ 与仓库不同 0"
+expect_contains "$SCENARIO_OUTPUT" "与仓库一致 3，[warn] 与仓库不同 0"
 expect_contains "$SCENARIO_OUTPUT" "实时查询，已更新今日缓存"
 scenario_end
 
@@ -229,7 +229,7 @@ scenario_end
 
 echo
 if [ "$FAILED" -ne 0 ]; then
-    echo "❌ 审计测试失败：${FAILED} 组失败，${PASSED} 组通过"
+    echo "[fail] 审计测试失败：${FAILED} 组失败，${PASSED} 组通过"
     exit 1
 fi
-echo "✅ 审计测试通过：${PASSED} 个核心场景"
+echo "[ok] 审计测试通过：${PASSED} 个核心场景"

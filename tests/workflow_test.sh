@@ -301,18 +301,18 @@ expect <<'EOF'
 source $env(TEST_UI_HELPERS)
 spawn sh "$env(TEST_REPO)/launch-test.sh"
 see {\x1b\[2J}
-page "今天想做什么"
+page "选择任务"
 see "重试上次失败项"
 see "备份个人数据"
 see "恢复个人数据"
 key "0"
-page "今天想做什么"
+page "选择任务"
 move_without_clear "\033\[B" "备份个人数据"
 move_without_clear "\033\[A" "配置这台 Mac"
 choose 1 ""
 page "配置这台 Mac"
-choose 1 "从仓库配置电脑"
-page "从仓库配置电脑"
+choose 1 "根据仓库配置此电脑"
+page "根据仓库配置此电脑"
 see "配置"
 see "软件"
 see "Recipe"
@@ -332,7 +332,7 @@ key "\r"
 see "b 返回主菜单"
 if {![file exists $env(TEST_EXECUTED)]} { puts stderr "未执行所选范围"; exit 1 }
 key b
-page "今天想做什么"
+page "选择任务"
 choose 2 "备份个人数据"
 
 page "备份位置"
@@ -341,7 +341,7 @@ confirmation "开始备份" "开始备份"
 key b
 page "备份位置"
 key b
-page "今天想做什么"
+page "选择任务"
 choose 3 "恢复个人数据"
 page "选择快照"
 choose 1 ""
@@ -377,12 +377,12 @@ page "恢复方式"
 key b
 page "选择快照"
 key b
-page "今天想做什么"
+page "选择任务"
 choose 4 "检查环境"
 see "正在检查工具与安装状态"
 see "测试环境正常"
 key b
-page "今天想做什么"
+page "选择任务"
 key q
 see TTY_RESTORED
 done
@@ -428,11 +428,11 @@ done 2
 
 spawn sh "$env(TEST_REPO)/launch-test.sh"
 stty rows 16 columns 48 < $spawn_out(slave,name)
-page "今天想做什么"
+page "选择任务"
 choose 1 ""
 page "配置这台 Mac"
-choose 1 "从仓库配置电脑"
-page "从仓库配置电脑"
+choose 1 "根据仓库配置此电脑"
+page "根据仓库配置此电脑"
 choose 1 "配置"
 see "空格切换"
 key q
@@ -492,7 +492,7 @@ EOF
 expect <<'EOF'
 source $env(TEST_UI_HELPERS)
 spawn sh "$env(TEST_REPO)/launch-test.sh"
-page "今天想做什么"
+page "选择任务"
 choose 2 "备份个人数据"
 page "备份位置"
 choose 2 "输入其他目录"
@@ -503,7 +503,7 @@ key "\r"
 see "测试备份完成"
 see "q 退出"
 key b
-page "今天想做什么"
+page "选择任务"
 choose 3 "恢复个人数据"
 page "选择快照"
 choose 1 ""
@@ -520,7 +520,7 @@ see TTY_RESTORED
 done
 
 spawn sh "$env(TEST_REPO)/launch-test.sh"
-page "今天想做什么"
+page "选择任务"
 choose 2 "备份个人数据"
 page "备份位置"
 choose 2 "输入其他目录"

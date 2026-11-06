@@ -23,17 +23,17 @@ fi
 
 init_results
 
-echo "🔧 按勾选项应用系统设置..."
+echo "应用选中的系统设置"
 run_annotated_shell_items defaults "$0"
 
 if [ "${_annotated_applied:-0}" -gt 0 ]; then
     if [ "${MAC_AS_CODE_RESULTS_OWNED:-0}" = "1" ]; then
         sh "$ROOT_DIR/scripts/audit.sh" snapshot --quiet || echo "无法更新设置变化基线"
     fi
-    echo "🔄 重启 Finder 以应用设置..."
+    echo "重启 Finder 以应用设置..."
     killall Finder 2>/dev/null || true
 else
-    echo "ℹ️  未选中任何系统设置项"
+    echo "[info] 未选中任何系统设置项"
 fi
 
 finalize_results_if_owned

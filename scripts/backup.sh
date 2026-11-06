@@ -28,7 +28,7 @@ copy_path() {
     rel_dest="$3"
 
     if [ ! -e "$src" ]; then
-        echo "⚠️  跳过，不存在：$src"
+        echo "[warn] 跳过，不存在：$src"
         record_summary "SKIP" "$label" "不存在：$src"
         return 0
     fi
@@ -40,7 +40,7 @@ copy_path() {
     else
         /usr/bin/ditto "$src" "$dest"
     fi
-    echo "✅ 已备份：$src"
+    echo "[ok] 已备份：$src"
     record_summary "DONE" "$label" "$rel_dest"
 }
 
@@ -50,7 +50,7 @@ copy_ghostty_config() {
     rel_dest="$3"
 
     if [ ! -d "$src" ]; then
-        echo "⚠️  跳过，不存在：$src"
+        echo "[warn] 跳过，不存在：$src"
         record_summary "SKIP" "$label" "不存在：$src"
         return 0
     fi
@@ -64,7 +64,7 @@ copy_ghostty_config() {
             -print -quit
     )"
     if [ -z "$meaningful_path" ]; then
-        echo "⚠️  跳过，目录中只有备份文件或无有效配置：$src"
+        echo "[warn] 跳过，目录中只有备份文件或无有效配置：$src"
         record_summary "SKIP" "$label" "无有效配置（已排除 *.bak）"
         return 0
     fi
@@ -75,7 +75,7 @@ copy_ghostty_config() {
         --exclude '.DS_Store' \
         --exclude '*.bak' \
         "$src/" "$dest/"
-    echo "✅ 已备份：${src}（已排除 *.bak）"
+    echo "[ok] 已备份：${src}（已排除 *.bak）"
     record_summary "DONE" "$label" "$rel_dest"
 }
 
@@ -85,14 +85,14 @@ copy_ssh() {
     dest="$SNAPSHOT_DIR/$rel_dest"
 
     if [ ! -e "$src" ]; then
-        echo "⚠️  跳过，不存在：$src"
+        echo "[warn] 跳过，不存在：$src"
         record_summary "SKIP" "SSH 配置" "不存在：$src"
         return 0
     fi
 
     mkdir -p "$(dirname "$dest")"
     /usr/bin/rsync -a --exclude '.DS_Store' --exclude '/agent/' "$src/" "$dest/"
-    echo "✅ 已备份：${src}（已排除运行时 agent socket）"
+    echo "[ok] 已备份：${src}（已排除运行时 agent socket）"
     record_summary "DONE" "SSH 配置" "$rel_dest"
 }
 
@@ -102,7 +102,7 @@ copy_rime() {
     dest="$SNAPSHOT_DIR/$rel_dest"
 
     if [ ! -d "$src" ]; then
-        echo "⚠️  跳过，不存在：$src"
+        echo "[warn] 跳过，不存在：$src"
         record_summary "SKIP" "Rime 配置" "不存在：$src"
         return 0
     fi
@@ -117,7 +117,7 @@ copy_rime() {
         --exclude 'LOG.old' \
         --exclude '*.log' \
         "$src/" "$dest/"
-    echo "✅ 已备份：${src}（已排除 build、plum 和运行时日志/锁文件）"
+    echo "[ok] 已备份：${src}（已排除 build、plum 和运行时日志/锁文件）"
     record_summary "DONE" "Rime 配置" "$rel_dest"
 }
 
@@ -127,20 +127,20 @@ export_defaults() {
     rel_dest="$3"
 
     if ! defaults read "$domain" &>/dev/null; then
-        echo "⚠️  跳过，未找到偏好域：$domain"
+        echo "[warn] 跳过，未找到偏好域：$domain"
         record_summary "SKIP" "$label" "未找到偏好域：$domain"
         return 0
     fi
 
     mkdir -p "$(dirname "$SNAPSHOT_DIR/$rel_dest")"
     defaults export "$domain" "$SNAPSHOT_DIR/$rel_dest"
-    echo "✅ 已导出偏好：$domain"
+    echo "[ok] 已导出偏好：$domain"
     record_summary "DONE" "$label" "$rel_dest"
 }
 
 quit_keyboard_maestro() {
     if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
-        echo "ℹ️  跳过退出 Keyboard Maestro（测试模式）"
+        echo "[info] 跳过退出 Keyboard Maestro（测试模式）"
         return 0
     fi
 
@@ -166,7 +166,7 @@ backup_textflash() {
     if [ ! -x "$textflash_bin" ] ||
         ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export snippets" ||
         ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "export config"; then
-        echo "⚠️  跳过，TextFlash 不支持 CLI 导出（需新版应用）：$textflash_bin"
+        echo "[warn] 跳过，TextFlash 不支持 CLI 导出（需新版应用）：$textflash_bin"
         record_summary "SKIP" "TextFlash 数据" "应用无 CLI 导出支持"
         return 0
     fi
@@ -178,18 +178,18 @@ backup_textflash() {
         "$textflash_bin" export config -o "$config_tmp" >/dev/null; then
         mv "$snippets_tmp" "$dest_root/snippets.json"
         mv "$config_tmp" "$dest_root/config.json"
-        echo "✅ 已导出 TextFlash 片段与配置：$dest_root"
+        echo "[ok] 已导出 TextFlash 片段与配置：$dest_root"
         record_summary "DONE" "TextFlash 数据" "${rel_dest_root}（snippets.json + config.json）"
     else
         rm -f "$snippets_tmp" "$config_tmp"
-        echo "⚠️  TextFlash CLI 导出失败，未保留不完整数据"
+        echo "[warn] TextFlash CLI 导出失败，未保留不完整数据"
         record_summary "SKIP" "TextFlash 数据" "CLI 导出失败"
     fi
 }
 
 quit_brave() {
     if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
-        echo "ℹ️  跳过退出 Brave Browser（测试模式）"
+        echo "[info] 跳过退出 Brave Browser（测试模式）"
         return 0
     fi
 
@@ -205,7 +205,7 @@ quit_brave() {
 # 自动拉起即可恢复。
 restart_control_center() {
     if /usr/bin/killall ControlCenter 2>/dev/null; then
-        echo "🔄 已重启 ControlCenter（修复菜单栏显示）"
+        echo "已重启 ControlCenter（修复菜单栏显示）"
     fi
 }
 
@@ -213,25 +213,25 @@ restart_control_center() {
 # 测试模式（RESET_KIT_SKIP_QUIT_APPS=1）下未退出应用，同样跳过重新打开。
 reopen_backed_up_apps() {
     if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
-        echo "ℹ️  跳过重新打开应用（测试模式）"
+        echo "[info] 跳过重新打开应用（测试模式）"
         return 0
     fi
 
     if [ "$KEYBOARD_MAESTRO_WAS_RUNNING" -eq 1 ] &&
         ! /usr/bin/pgrep -f "Keyboard Maestro" &>/dev/null; then
         if /usr/bin/open -a "Keyboard Maestro"; then
-            echo "✅ 已重新打开 Keyboard Maestro"
+            echo "[ok] 已重新打开 Keyboard Maestro"
         else
-            echo "⚠️  未能重新打开 Keyboard Maestro"
+            echo "[warn] 未能重新打开 Keyboard Maestro"
         fi
     fi
 
     if [ "$BRAVE_WAS_RUNNING" -eq 1 ] &&
         ! /usr/bin/pgrep -f "Brave Browser" &>/dev/null; then
         if /usr/bin/open -a "Brave Browser"; then
-            echo "✅ 已重新打开 Brave Browser"
+            echo "[ok] 已重新打开 Brave Browser"
         else
-            echo "⚠️  未能重新打开 Brave Browser"
+            echo "[warn] 未能重新打开 Brave Browser"
         fi
     fi
 
@@ -266,22 +266,22 @@ backup_brave_extension_configs() {
     rel_root="application-support/Brave-Browser/Default"
 
     if [ ! -d "$brave_profile" ]; then
-        echo "⚠️  跳过，未找到 Brave 配置目录：$brave_profile"
+        echo "[warn] 跳过，未找到 Brave 配置目录：$brave_profile"
         record_summary "SKIP" "Brave 插件本地配置" "未找到 Brave 配置目录"
         return 0
     fi
 
-    echo "🦁 退出 Brave 后备份插件本地配置..."
+    echo "退出 Brave 后备份插件本地配置..."
     quit_brave
 
     if [ -d "$local_settings" ]; then
         dest="$SNAPSHOT_DIR/$rel_root/Local Extension Settings"
         mkdir -p "$(dirname "$dest")"
         /usr/bin/rsync -a --exclude '.DS_Store' "$local_settings/" "$dest/"
-        echo "✅ 已备份：Local Extension Settings"
+        echo "[ok] 已备份：Local Extension Settings"
         record_summary "DONE" "Brave Local Extension Settings" "$rel_root/Local Extension Settings"
     else
-        echo "⚠️  跳过，不存在：$local_settings"
+        echo "[warn] 跳过，不存在：$local_settings"
         record_summary "SKIP" "Brave Local Extension Settings" "不存在"
     fi
 
@@ -296,14 +296,14 @@ backup_brave_extension_configs() {
         done
 
         if [ "$idb_count" -gt 0 ]; then
-            echo "✅ 已备份：IndexedDB 中 ${idb_count} 个 chrome-extension_* 条目"
+            echo "[ok] 已备份：IndexedDB 中 ${idb_count} 个 chrome-extension_* 条目"
             record_summary "DONE" "Brave 插件 IndexedDB" "$rel_root/IndexedDB（${idb_count} 项）"
         else
-            echo "⚠️  跳过，IndexedDB 中无 chrome-extension_* 条目"
+            echo "[warn] 跳过，IndexedDB 中无 chrome-extension_* 条目"
             record_summary "SKIP" "Brave 插件 IndexedDB" "无 chrome-extension_* 条目"
         fi
     else
-        echo "⚠️  跳过，不存在：$indexed_db"
+        echo "[warn] 跳过，不存在：$indexed_db"
         record_summary "SKIP" "Brave 插件 IndexedDB" "不存在"
     fi
 }
@@ -342,7 +342,7 @@ restore_path() {
 
     src="$SNAPSHOT_DIR/$rel_src"
     if [ ! -e "$src" ]; then
-        echo "⚠️  跳过，快照中不存在：$rel_src"
+        echo "[warn] 跳过，快照中不存在：$rel_src"
         record_summary "SKIP" "$label" "快照中不存在：$rel_src"
         return 0
     fi
@@ -352,11 +352,11 @@ restore_path() {
     if [ -e "$dest" ]; then
         backup_dest="$dest.before-restore-$STAMP"
         mv "$dest" "$backup_dest"
-        echo "🧷 已保留现有配置：$backup_dest"
+        echo "已保留现有配置：$backup_dest"
     fi
 
     /usr/bin/ditto "$src" "$dest"
-    echo "✅ 已恢复：$dest"
+    echo "[ok] 已恢复：$dest"
     record_summary "DONE" "$label" "$dest"
 }
 
@@ -366,7 +366,7 @@ backup_defaults() {
 
     if defaults read "$domain" &>/dev/null; then
         defaults export "$domain" "$backup_path"
-        echo "🧷 已保留现有偏好：$backup_path"
+        echo "已保留现有偏好：$backup_path"
     fi
 }
 
@@ -377,14 +377,14 @@ import_defaults() {
 
     src="$SNAPSHOT_DIR/$rel_src"
     if [ ! -f "$src" ]; then
-        echo "⚠️  跳过，快照中不存在：$rel_src"
+        echo "[warn] 跳过，快照中不存在：$rel_src"
         record_summary "SKIP" "$label" "快照中不存在：$rel_src"
         return 0
     fi
 
     backup_defaults "$domain"
     defaults import "$domain" "$src"
-    echo "✅ 已导入偏好：$domain"
+    echo "[ok] 已导入偏好：$domain"
     record_summary "DONE" "$label" "$domain"
 }
 
@@ -392,7 +392,7 @@ quit_app() {
     app_name="$1"
 
     if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
-        echo "ℹ️  跳过退出 ${app_name}（测试模式）"
+        echo "[info] 跳过退出 ${app_name}（测试模式）"
         return 0
     fi
 
@@ -407,7 +407,7 @@ restore_textflash() {
     backup_root="$SNAPSHOT_DIR/application-backups/TextFlash"
 
     if [ ! -f "$backup_root/snippets.json" ] || [ ! -f "$backup_root/config.json" ]; then
-        echo "⚠️  跳过，快照中 TextFlash JSON 备份不完整"
+        echo "[warn] 跳过，快照中 TextFlash JSON 备份不完整"
         record_summary "SKIP" "TextFlash 数据" "缺少 snippets.json 或 config.json"
         return 0
     fi
@@ -415,7 +415,7 @@ restore_textflash() {
     if [ ! -x "$textflash_bin" ] ||
         ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "import snippets" ||
         ! /usr/bin/strings "$textflash_bin" 2>/dev/null | /usr/bin/grep -q "import config"; then
-        echo "⚠️  跳过，TextFlash 不支持 CLI 导入（需新版应用）：$textflash_bin"
+        echo "[warn] 跳过，TextFlash 不支持 CLI 导入（需新版应用）：$textflash_bin"
         record_summary "SKIP" "TextFlash 数据" "应用无 CLI 支持"
         return 0
     fi
@@ -425,10 +425,10 @@ restore_textflash() {
 
     if "$textflash_bin" import snippets "$backup_root/snippets.json" >/dev/null &&
         "$textflash_bin" import config "$backup_root/config.json" >/dev/null; then
-        echo "✅ 已恢复 TextFlash 片段与配置（CLI 导入）"
+        echo "[ok] 已恢复 TextFlash 片段与配置（CLI 导入）"
         record_summary "DONE" "TextFlash 数据" "片段与配置（CLI 导入）"
     else
-        echo "⚠️  TextFlash CLI 导入失败"
+        echo "[warn] TextFlash CLI 导入失败"
         record_summary "SKIP" "TextFlash 数据" "CLI 导入失败"
     fi
 }
@@ -440,7 +440,7 @@ restore_brave_extension_configs() {
     src_idb="$SNAPSHOT_DIR/$rel_root/IndexedDB"
 
     if [ ! -d "$src_local" ] && [ ! -d "$src_idb" ]; then
-        echo "⚠️  跳过，快照中不存在 Brave 插件本地配置"
+        echo "[warn] 跳过，快照中不存在 Brave 插件本地配置"
         record_summary "SKIP" "Brave 插件本地配置" "快照中不存在"
         return 0
     fi
@@ -470,10 +470,10 @@ restore_brave_extension_configs() {
         done
 
         if [ "$idb_count" -gt 0 ]; then
-            echo "✅ 已恢复：IndexedDB 中 ${idb_count} 个 chrome-extension_* 条目"
+            echo "[ok] 已恢复：IndexedDB 中 ${idb_count} 个 chrome-extension_* 条目"
             record_summary "DONE" "Brave 插件 IndexedDB" "${brave_profile}/IndexedDB（${idb_count} 项）"
         else
-            echo "⚠️  跳过，快照 IndexedDB 中无 chrome-extension_* 条目"
+            echo "[warn] 跳过，快照 IndexedDB 中无 chrome-extension_* 条目"
             record_summary "SKIP" "Brave 插件 IndexedDB" "快照中无条目"
         fi
     fi
@@ -481,7 +481,7 @@ restore_brave_extension_configs() {
 
 if [ "${MAC_AS_CODE_RESTORE_CONFIRMED:-0}" != 1 ]; then
     [ -t 0 ] || { echo "请在交互终端运行 sh restore.sh。" >&2; exit 1; }
-    printf '\033[2J\033[H\033[1;36mmac-as-code · 快照恢复\033[0m\n\033[90m让每一台 Mac，都回到你的习惯。\033[0m\n\n'
+    printf '\033[2J\033[H\033[1;36mmac-as-code · 快照恢复\033[0m\n\033[90mmacOS 配置、备份与恢复\033[0m\n\n'
     echo "将从 $SNAPSHOT_DIR 恢复个人数据，保留现有文件为 .before-restore-*，并退出相关应用。"
     restore_tty="$(stty -g)"
     trap 'stty "$restore_tty" 2>/dev/null || true; printf "\033[0m\033[?25h"' EXIT
@@ -505,15 +505,15 @@ fi
 [ -s "$SNAPSHOT_DIR/SHA256SUMS" ] || { echo "缺少或空的完整性校验文件，停止恢复。" >&2; exit 1; }
 # 校验快照完整性
 if [ -f "$SNAPSHOT_DIR/SHA256SUMS" ]; then
-    echo "🔐 校验快照完整性..."
+    echo "校验快照完整性..."
     if ! (cd "$SNAPSHOT_DIR" && shasum -a 256 -c SHA256SUMS > /dev/null 2>&1); then
-        echo "❌ 快照完整性校验失败！文件可能已损坏或被篡改。"
+        echo "[fail] 快照完整性校验失败。文件可能已损坏或被篡改。"
         exit 1
     fi
-    echo "✅ 快照完整性校验通过"
+    echo "[ok] 快照完整性校验通过"
 fi
 
-echo "♻️  从快照恢复：$SNAPSHOT_DIR"
+echo "从快照恢复：$SNAPSHOT_DIR"
 
 restore_path "SSH 配置" "home/.ssh" "$HOME/.ssh"
 if [ -d "$HOME/.ssh" ]; then
@@ -557,8 +557,8 @@ echo "==> 恢复汇总"
 printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${status:-}" ]; do
     [ -n "$status" ] || continue
     case "$status" in
-        DONE) echo "✅ ${item:-未知项目}：已恢复到 ${detail:-未知位置}" ;;
-        SKIP) echo "⚠️  ${item:-未知项目}：已跳过，${detail:-无详情}" ;;
+        DONE) echo "[ok] ${item:-未知项目}：已恢复到 ${detail:-未知位置}" ;;
+        SKIP) echo "[warn] ${item:-未知项目}：已跳过，${detail:-无详情}" ;;
         *) echo "$status ${item:-未知项目}：${detail:-无详情}" ;;
     esac
 done
@@ -589,7 +589,7 @@ mkdir -p "$SNAPSHOT_DIR/metadata"
 
 write_restore_script
 
-echo "📦 创建离线迁移快照：$SNAPSHOT_DIR"
+echo "创建离线迁移快照：$SNAPSHOT_DIR"
 
 copy_ssh
 copy_path "Git 配置" "$HOME/.gitconfig" "home/.gitconfig"
@@ -598,7 +598,7 @@ copy_ghostty_config "Ghostty XDG 配置" "$HOME/.config/ghostty" "home/.config/g
 
 export_defaults "CleanShot 偏好" "pl.maketheweb.cleanshotx" "preferences/pl.maketheweb.cleanshotx.plist"
 
-echo "⌨️  退出 Keyboard Maestro 后备份配置..."
+echo "退出 Keyboard Maestro 后备份配置..."
 quit_keyboard_maestro
 copy_path "Keyboard Maestro 宏" \
     "$HOME/Library/Application Support/Keyboard Maestro/Keyboard Maestro Macros.plist" \
@@ -606,7 +606,7 @@ copy_path "Keyboard Maestro 宏" \
 keyboard_maestro_icon="$(defaults read com.stairways.keyboardmaestro.engine StatusMenuIcon 2>/dev/null || true)"
 case "$keyboard_maestro_icon" in
     ''|*/*)
-        echo "⚠️  跳过 Keyboard Maestro 状态栏图标，未找到有效的自定义图标名"
+        echo "[warn] 跳过 Keyboard Maestro 状态栏图标，未找到有效的自定义图标名"
         record_summary "SKIP" "Keyboard Maestro 状态栏图标" "未配置有效的自定义图标"
         ;;
     *)
@@ -623,7 +623,7 @@ copy_rime
 backup_textflash
 backup_brave_extension_configs
 
-echo "🔐 生成快照校验文件..."
+echo "生成快照校验文件..."
 (cd "$SNAPSHOT_DIR" && find . -type f \
     ! -name 'SHA256SUMS' \
     ! -name 'restore.sh' \
@@ -637,8 +637,8 @@ echo "==> 备份汇总"
 printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${status:-}" ]; do
     [ -n "$status" ] || continue
     case "$status" in
-        DONE) echo "✅ ${item:-未知项目}：已备份到 ${detail:-未知位置}" ;;
-        SKIP) echo "⚠️  ${item:-未知项目}：已跳过，${detail:-无详情}" ;;
+        DONE) echo "[ok] ${item:-未知项目}：已备份到 ${detail:-未知位置}" ;;
+        SKIP) echo "[warn] ${item:-未知项目}：已跳过，${detail:-无详情}" ;;
         *) echo "$status ${item:-未知项目}：${detail:-无详情}" ;;
     esac
 done

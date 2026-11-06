@@ -10,26 +10,26 @@ OH_MY_ZSH_DIR="${ZSH:-$HOME/.oh-my-zsh}"
 INSTALL_URL="https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
 
 if [ -d "$OH_MY_ZSH_DIR" ]; then
-    echo "✅ Oh My Zsh 已安装"
+    echo "[ok] Oh My Zsh 已安装"
     exit 0
 fi
 
 if ! command -v zsh >/dev/null 2>&1; then
-    echo "❌ zsh 未安装"
+    echo "[fail] zsh 未安装"
     exit 1
 fi
 
 if ! command -v git >/dev/null 2>&1; then
-    echo "❌ git 未安装，请先安装 Xcode Command Line Tools"
+    echo "[fail] git 未安装，请先安装 Xcode Command Line Tools"
     exit 1
 fi
 
 if ! git --version >/dev/null 2>&1; then
-    echo "❌ git 当前不可用，请先处理 Xcode 许可，例如在终端执行：sudo xcodebuild -license"
+    echo "[fail] git 当前不可用，请先处理 Xcode 许可，例如在终端执行：sudo xcodebuild -license"
     exit 1
 fi
 
-echo "🐚 安装 Oh My Zsh..."
+echo "安装 Oh My Zsh..."
 
 # --unattended 会跳过 chsh 和安装后进入 zsh，适合初始化脚本。
 # 默认让官方脚本备份并替换已有 .zshrc；如果要保留已有 .zshrc，可执行：
@@ -40,4 +40,4 @@ export KEEP_ZSHRC="${KEEP_ZSHRC:-no}"
 
 sh -c "$(curl -fsSL "$INSTALL_URL")" "" --unattended
 
-echo "✅ Oh My Zsh 安装完成"
+echo "[ok] Oh My Zsh 安装完成"

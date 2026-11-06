@@ -70,9 +70,9 @@ confirm_mas_upfront() {
     if apple_id_signed_in; then
         mas_label="$(apple_id_label)"
         if [ -n "$mas_label" ]; then
-            echo "✅ 已检测到 Apple ID：${mas_label}，稍后按清单安装"
+            echo "[ok] 已检测到 Apple ID：${mas_label}，稍后按清单安装"
         else
-            echo "✅ 已检测到 Apple ID 登录，稍后按清单安装"
+            echo "[ok] 已检测到 Apple ID 登录，稍后按清单安装"
         fi
         export MAC_AS_CODE_MAS_READY=1
         return 0
@@ -83,7 +83,7 @@ confirm_mas_upfront() {
         return 1
     fi
 
-    echo "⚠️  未检测到 App Store 登录"
+    echo "[warn] 未检测到 App Store 登录"
     echo "   新版 macOS 可能无法自动读取登录状态；若已登录可忽略此提示。"
     open -a "App Store" 2>/dev/null || true
 
@@ -98,9 +98,9 @@ b 返回配置菜单，q 退出。" login
     fi
 
     if apple_id_signed_in; then
-        echo "✅ 已检测到 App Store 登录"
+        echo "[ok] 已检测到 App Store 登录"
     else
-        echo "⚠️  仍未检测到登录状态；继续安装，失败项会列在结果中。"
+        echo "[warn] 仍未检测到登录状态；继续安装，失败项会列在结果中。"
     fi
     export MAC_AS_CODE_MAS_READY=1
     ui_execution "继续安装软件"
@@ -132,7 +132,7 @@ run_step() {
     if sh "$script_path" "$@"; then
         record_result "OK" "步骤:$name" "完成"
     else
-        echo "⚠️  步骤失败：${name}（已记录，继续执行后续步骤）"
+        echo "[warn] 步骤失败：${name}（已记录，继续执行后续步骤）"
         record_result "FAIL" "步骤:$name" "脚本退出非零"
         STEP_FAIL_COUNT=$((STEP_FAIL_COUNT + 1))
     fi
@@ -146,7 +146,7 @@ maybe_run_type() {
 
     if ! plan_has_on "$PLAN_FILE" "$type_name"; then
         echo
-        echo "⏭️  跳过：${description}（未选中任何项）"
+        echo "[skip] 跳过：${description}（未选中任何项）"
         record_result "SKIP" "步骤:$step_name" "用户未选中"
         return 0
     fi
@@ -160,12 +160,12 @@ maybe_run_brew() {
 
     if [ "${brew_on:-0}" -eq 0 ] && [ "${cask_on:-0}" -eq 0 ] && [ "${mas_on:-0}" -eq 0 ]; then
         echo
-        echo "⏭️  跳过：安装 Homebrew 及软件（未选中任何软件）"
+        echo "[skip] 跳过：安装 Homebrew 及软件（未选中任何软件）"
         record_result "SKIP" "步骤:brew" "用户未选中任何软件"
         return 0
     fi
 
-    run_step "brew" "🍺 安装 Homebrew 及软件..." "$SCRIPTS_DIR/brew.sh"
+    run_step "brew" "安装 Homebrew 与软件" "$SCRIPTS_DIR/brew.sh"
 }
 
 maybe_run_recipes() {
@@ -178,7 +178,7 @@ maybe_run_recipes() {
     if ! plan_has_on "$PLAN_FILE" "recipe" &&
         ! plan_has_on "$PLAN_FILE" "github-release"; then
         echo
-        echo "⏭️  跳过：Recipes / GitHub Releases 应用（未选中任何项）"
+        echo "[skip] 跳过：Recipes / GitHub Releases 应用（未选中任何项）"
         record_result "SKIP" "步骤:recipe" "用户未选中"
         return 0
     fi
@@ -190,18 +190,18 @@ maybe_run_recipes() {
                 script="$CONFIG_DIR/recipes/${name}.sh"
                 if [ ! -f "$script" ]; then
                     echo
-                    echo "❌ Recipe 脚本不存在：${script}"
+                    echo "[fail] Recipe 脚本不存在：${script}"
                     record_result "FAIL" "recipe:${name}" "脚本不存在"
                     STEP_FAIL_COUNT=$((STEP_FAIL_COUNT + 1))
                     continue
                 fi
-                run_step "recipe:${name}" "🧩 ${label:-$name}..." "$script"
+                run_step "recipe:${name}" "${label:-$name}" "$script"
                 ;;
             github-release)
                 script="$SCRIPTS_DIR/github_release_apps.sh"
                 run_step \
                     "github-release:${name}" \
-                    "📦 ${label:-$name}..." \
+                    "${label:-$name}" \
                     "$script" \
                     "$name"
                 ;;
@@ -209,10 +209,10 @@ maybe_run_recipes() {
     done <"$PLAN_FILE"
 }
 
-maybe_run_type "defaults" "defaults" "🔧 修改系统设置..." "$CONFIG_DIR/defaults_config.sh"
+maybe_run_type "defaults" "defaults" "应用系统设置" "$CONFIG_DIR/defaults_config.sh"
 maybe_run_brew
 maybe_run_recipes
-maybe_run_type "dock" "dock" "🖥️  配置 Dock..." "$CONFIG_DIR/defaults_dock.sh"
+maybe_run_type "dock" "dock" "应用 Dock 设置" "$CONFIG_DIR/defaults_dock.sh"
 
 # 软件或设置可能已经变化，使当天的审计结果失效。
 if ! sh "$SCRIPTS_DIR/audit.sh" snapshot --quiet; then
@@ -243,10 +243,10 @@ persist_results_log "$MAC_AS_CODE_RESULTS" "apply" "$ROOT_DIR"
 
 echo
 if [ "$summary_status" -eq 0 ] && [ "$STEP_FAIL_COUNT" -eq 0 ]; then
-    echo "✅ 全部完成"
+    echo "[ok] 全部完成"
     echo "如需恢复个人数据：运行 sh mac.sh，选择恢复个人数据。"
     exit 0
 fi
 
-echo "⚠️  执行结束，但仍有失败项；可从 sh mac.sh 主菜单选择重试上次失败项；详情见日志。"
+echo "[warn] 执行结束，但仍有失败项；可从 sh mac.sh 主菜单选择重试上次失败项；详情见日志。"
 exit 1
