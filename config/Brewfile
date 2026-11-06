@@ -1,6 +1,7 @@
 # macOS as Code — Brewfile
 # 按安装方式分组；组内按名称排序。注释项为可选 / 暂不安装，保留备查。
 # 修改后运行 sh mac.sh --check。
+# Meso
 
 # ── Homebrew formula：基础工具 ──────────────────────────────────────────────
 brew "btop"
@@ -28,7 +29,6 @@ brew "ollama"
 brew "pngquant"
 
 # ── cask：系统工具（安装时需要 sudo） ──────────────────────────────────────
-cask "logi-options+"
 cask "rode-central"
 cask "squirrel-app"
 
@@ -55,13 +55,13 @@ cask "vibe-island"
 # ── cask：开发、终端与文件工具 ─────────────────────────────────────────────
 cask "android-platform-tools"
 cask "charles"
-cask "codex"
+# cask "codex"
 cask "font-maple-mono-normal-nf-cn"
 cask "ghostty"
 cask "herdr-gpui"
 cask "iterm2"
 cask "openmtp"
-cask "orbstack"
+# cask "orbstack"
 cask "sourcetree"
 cask "sublime-text"
 
@@ -103,4 +103,5 @@ mas "Xcode", id: 497799835
 # ── 自动追加区 ─────────────────────────────────────────────────────────────
 # 「将本机软件加入配置清单」会把新项写在这里；可按用途移动到上方分组。
 # audit-added:start
+cask "magpie"
 # audit-added:end
