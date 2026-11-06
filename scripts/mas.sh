@@ -91,31 +91,33 @@ if [ "$NEED_INSTALL" -eq 0 ]; then
 fi
 
 ##############################################
-## 登录门禁：init 开头已确认则可跳过；单独运行 mas.sh 时仍询问
+## 登录提示：检测不到登录态时只提示一次，不循环等待
 ##############################################
 
 # 装机计划里已多选过；此处只补登录，不再问「全部跳过/继续」
-if [ "${MAC_AS_CODE_MAS_READY:-}" = "1" ] || apple_id_signed_in; then
-    if apple_id_signed_in; then
-        echo "✅ Apple ID：$(apple_id_account)，按多选清单安装"
+if [ "${MAC_AS_CODE_MAS_READY:-}" = "1" ]; then
+    echo "✅ 按多选清单安装 App Store 应用"
+elif apple_id_signed_in; then
+    mas_label="$(apple_id_label)"
+    if [ -n "$mas_label" ]; then
+        echo "✅ 已检测到 Apple ID：${mas_label}，按多选清单安装"
     else
-        echo "✅ 按多选清单安装 App Store 应用"
+        echo "✅ 已检测到 Apple ID 登录，按多选清单安装"
     fi
 else
-    echo "⚠️  未检测到 Apple ID，打开 App Store，登录后按 Enter"
+    echo "⚠️  未检测到 App Store 登录（新版 macOS 可能无法自动读取；已登录可忽略）"
     open -a "App Store" 2>/dev/null || true
-    while true; do
-        printf "登录完成后按 Enter > "
-        if ! read -r _; then
-            break
-        fi
+    if [ -t 0 ]; then
+        printf "完成登录后按 Enter 继续安装（已登录可直接按 Enter）> "
+        read -r _ || true
         if apple_id_signed_in; then
-            echo "✅ 已检测到 Apple ID：$(apple_id_account)"
-            break
+            echo "✅ 已检测到 App Store 登录"
+        else
+            echo "⚠️  仍未检测到登录状态；继续安装，失败项会列在结果中。"
         fi
-        echo "仍未检测到登录，请登录后再按 Enter（或 Ctrl+C 中止）"
-        open -a "App Store" 2>/dev/null || true
-    done
+    else
+        echo "非交互环境：直接继续安装，失败项会列在结果中。"
+    fi
 fi
 
 install_mas_app() {

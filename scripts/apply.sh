@@ -46,7 +46,6 @@ fi
 # App Store：多选已决定装哪些；这里只处理登录，不再问「继续/跳过全部」
 confirm_mas_upfront() {
     mas_on=0
-    apple_id=""
 
     while IFS='|' read -r state type name id; do
         [ "$state" = "ON" ] && [ "$type" = "mas" ] || continue
@@ -69,37 +68,43 @@ confirm_mas_upfront() {
     done <"$PLAN_FILE"
 
     if apple_id_signed_in; then
-        apple_id="$(apple_id_account)"
-        echo "✅ 已检测到 Apple ID：${apple_id}，稍后按清单安装"
+        mas_label="$(apple_id_label)"
+        if [ -n "$mas_label" ]; then
+            echo "✅ 已检测到 Apple ID：${mas_label}，稍后按清单安装"
+        else
+            echo "✅ 已检测到 Apple ID 登录，稍后按清单安装"
+        fi
         export MAC_AS_CODE_MAS_READY=1
         return 0
     fi
 
     if [ ! -t 0 ]; then
-        echo "未检测到 Apple ID，请在交互终端登录后重试。" >&2
+        echo "未检测到 App Store 登录，请在交互终端登录后重试。" >&2
         return 1
     fi
 
-    echo "⚠️  未检测到 Apple ID，打开 App Store，请登录后按 Enter 继续"
+    echo "⚠️  未检测到 App Store 登录"
+    echo "   新版 macOS 可能无法自动读取登录状态；若已登录可忽略此提示。"
     open -a "App Store" 2>/dev/null || true
 
-    while true; do
-        ui_document "App Store 登录" "请在 App Store 完成登录，然后按 Enter 检查。" login
-        input_status=$?
-        case "$input_status" in
-            1) return 2 ;;
-            2|3) return "$input_status" ;;
-        esac
-        if apple_id_signed_in; then
-            apple_id="$(apple_id_account)"
-            echo "✅ 已检测到 Apple ID：${apple_id}"
-            export MAC_AS_CODE_MAS_READY=1
-            ui_execution "继续安装软件"
-            return 0
-        fi
-        echo "仍未检测到登录，请登录后再按 Enter（或 Ctrl+C 中止）"
-        open -a "App Store" 2>/dev/null || true
-    done
+    ui_document "App Store 登录" "请在 App Store 完成登录，然后按 Enter 继续安装。
+
+如果已经登录，仍可能因为系统不提供可读的登录状态而停在这里；按 Enter 会直接继续，未登录时安装失败的应用会列在结果中。
+
+b 返回配置菜单，q 退出。" login
+    input_status=$?
+    if [ "$input_status" -ne 0 ]; then
+        return "$input_status"
+    fi
+
+    if apple_id_signed_in; then
+        echo "✅ 已检测到 App Store 登录"
+    else
+        echo "⚠️  仍未检测到登录状态；继续安装，失败项会列在结果中。"
+    fi
+    export MAC_AS_CODE_MAS_READY=1
+    ui_execution "继续安装软件"
+    return 0
 }
 
 confirm_mas_upfront || exit $?
@@ -239,9 +244,9 @@ persist_results_log "$MAC_AS_CODE_RESULTS" "apply" "$ROOT_DIR"
 echo
 if [ "$summary_status" -eq 0 ] && [ "$STEP_FAIL_COUNT" -eq 0 ]; then
     echo "✅ 全部完成"
-    echo "如需恢复个人数据：运行 sh mac.sh，选择从备份恢复。"
+    echo "如需恢复个人数据：运行 sh mac.sh，选择恢复个人数据。"
     exit 0
 fi
 
-echo "⚠️  执行结束，但仍有失败项；可从 sh mac.sh 的配置菜单重试失败项；详情见日志。"
+echo "⚠️  执行结束，但仍有失败项；可从 sh mac.sh 主菜单选择重试上次失败项；详情见日志。"
 exit 1

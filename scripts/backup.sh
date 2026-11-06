@@ -645,4 +645,4 @@ done
 
 printf '%s' "$SUMMARY" | awk -F '\t' '$1 == "DONE" { done++ } $1 == "SKIP" { skip++ } END { printf "备份结束：完成 %d，未备份 %d；未备份项目见上方。\n", done, skip }'
 echo "快照位置：$SNAPSHOT_DIR"
-echo "请将整个快照目录拷到外置盘；新机运行 sh mac.sh，选择从备份恢复。"
+echo "请将整个快照目录拷到外置盘；新机运行 sh mac.sh，选择恢复个人数据。"

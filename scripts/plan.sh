@@ -28,6 +28,53 @@ mas_readable=0
 if command -v mas >/dev/null 2>&1 && mas list >"$work_dir/mas" 2>/dev/null; then
     mas_readable=1
 fi
+
+# 批量清单未命中的 Homebrew 项需要逐项确认别名或手工安装的应用。
+# 这些查询彼此独立，并行执行可把十几秒的串行等待压到数秒。
+BREW_PROBE="$work_dir/brew-probe"
+: >"$BREW_PROBE"
+
+probe_brew_item() {
+    probe_type="$1"
+    probe_name="$2"
+    case "$probe_type" in
+        brew) probe_kind=--formula ;;
+        cask) probe_kind=--cask ;;
+        *) return 0 ;;
+    esac
+    if brew list "$probe_kind" "$probe_name" >/dev/null 2>&1; then
+        printf '%s|%s|alias\n' "$probe_type" "$probe_name" >>"$BREW_PROBE"
+    elif [ "$probe_type" = "cask" ] && cask_application_exists "$probe_name"; then
+        printf '%s|%s|manual\n' "$probe_type" "$probe_name" >>"$BREW_PROBE"
+    else
+        printf '%s|%s|missing\n' "$probe_type" "$probe_name" >>"$BREW_PROBE"
+    fi
+}
+
+brew_probe_status() {
+    awk -F'|' -v wanted_type="$1" -v wanted_name="$2" \
+        '$1 == wanted_type && $2 == wanted_name { print $3; exit }' "$BREW_PROBE"
+}
+
+if [ "$brew_available" -eq 1 ]; then
+    probe_jobs=0
+    while IFS='|' read -r _probe_state probe_type probe_name _probe_extra; do
+        case "$probe_type" in
+            brew) probe_installed="$work_dir/formulae" ;;
+            cask) probe_installed="$work_dir/casks" ;;
+            *) continue ;;
+        esac
+        grep -Fqx -e "$probe_name" "$probe_installed" && continue
+        probe_brew_item "$probe_type" "$probe_name" &
+        probe_jobs=$((probe_jobs + 1))
+        if [ "$probe_jobs" -ge 8 ]; then
+            wait || true
+            probe_jobs=0
+        fi
+    done <"$work_dir/full.plan"
+    wait || true
+fi
+
 : >"$output_plan"
 : >"$output_details"
 # 以注解项为执行单位；同一项中的多个键只产生一个操作。
@@ -66,16 +113,15 @@ while IFS='|' read -r _state item_type item_name item_extra; do
             item_detail="未检测到 → 安装（${item_type}）"
             if [ "$brew_available" -eq 1 ]; then
                 installed_file="$work_dir/formulae"
-                brew_kind=--formula
                 if [ "$item_type" = cask ]; then
                     installed_file="$work_dir/casks"
-                    brew_kind=--cask
                 fi
-                # 批量清单显示规范名；未匹配时保留 Homebrew 的别名解析。
-                if grep -Fqx -e "$item_name" "$installed_file" || brew list "$brew_kind" "$item_name" >/dev/null 2>&1; then
+                probe_status="$(brew_probe_status "$item_type" "$item_name")"
+                # 批量清单显示规范名；未匹配时用预检结果保留别名与手工安装识别。
+                if grep -Fqx -e "$item_name" "$installed_file" || [ "$probe_status" = "alias" ]; then
                     item_status=met
                     item_detail="已安装"
-                elif [ "$item_type" = cask ] && cask_application_exists "$item_name"; then
+                elif [ "$item_type" = cask ] && [ "$probe_status" = "manual" ]; then
                     item_status=met
                     item_detail="应用已存在（非 Homebrew 安装）"
                 fi
@@ -126,10 +172,8 @@ while IFS='|' read -r _state item_type item_name item_extra; do
     item_detail="$(printf '%s' "$item_detail" | tr '\t\n|' '   ')"
     item_label="$(printf '%s' "$item_label" | tr '\t\n|' '   ')"
     printf '%s\t%s\t%s\t%s\t%s\n' "$item_type" "$item_name" "$item_status" "$item_label" "$item_detail" >>"$output_details"
-    # 已满足项仅进入详情；调整选择时也无需重复勾选。
-    if [ "$item_status" != met ]; then
-        state=OFF
-        [ "$item_status" != pending ] || state=ON
-        printf '%s|%s|%s|%s\n' "$state" "$item_type" "$item_name" "$item_extra" >>"$output_plan"
-    fi
+    # 所有项目都进入计划：已满足项和待处理项默认勾选，需确认项默认不选。
+    state=OFF
+    [ "$item_status" = manual ] || state=ON
+    printf '%s|%s|%s|%s\n' "$state" "$item_type" "$item_name" "$item_extra" >>"$output_plan"
 done <"$work_dir/full.plan"

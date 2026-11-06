@@ -125,17 +125,36 @@ parse_brewfile() {
     done <"$brewfile"
 }
 
-# 尽力检测本机是否已登录 Apple ID（mas 7 已移除 account/signin）。
-# 读的是系统 Apple 账户（MobileMeAccounts），多数情况下与 App Store「媒体与购买项目」一致，
-# 但不能 100% 保证等于 App Store 登录态。
+# 尽力检测本机是否已登录 Apple ID / App Store 账户（mas 7 已移除 account/signin）。
+# 旧版 macOS 从 MobileMeAccounts 读账号；新版系统不再提供该域，改看 Apple 账户信息缓存
+# 与媒体令牌缓存。这些都是近似信号，无法读取时必须允许用户继续安装，不能循环等待。
 apple_id_account() {
     defaults read MobileMeAccounts Accounts 2>/dev/null \
         | awk -F'"' '/AccountID/ { print $2; exit }'
 }
 
+# 优先显示 Apple ID；新系统只有姓名时退回姓名；都没有则输出空。
+apple_id_label() {
+    _apple_account="$(apple_id_account)"
+    if [ -n "$_apple_account" ]; then
+        printf '%s\n' "$_apple_account"
+        return 0
+    fi
+    defaults read com.apple.appleaccount.informationcache AAAccountFullName 2>/dev/null
+}
+
+# 媒体令牌缓存存在即说明 App Store 已缓存登录凭证。
+app_store_token_cached() {
+    defaults read com.apple.itunescloud ICDefaultsKeyAuthServiceClientTokenCache 2>/dev/null \
+        | awk '/^[[:space:]]*[0-9]+[[:space:]]*=/ { found = 1 } END { exit found ? 0 : 1 }'
+}
+
 apple_id_signed_in() {
-    apple_id="$(apple_id_account)"
-    [ -n "$apple_id" ]
+    _apple_account="$(apple_id_account)"
+    [ -n "$_apple_account" ] && return 0
+    _apple_signed_state="$(defaults read com.apple.appleaccount.informationcache AAIsAccountSignedIn 2>/dev/null || true)"
+    [ "$_apple_signed_state" = "1" ] && return 0
+    app_store_token_cached
 }
 
 # defaults / dock 脚本中的可选项约定（注释 + 命令，便于增减）：
@@ -452,6 +471,34 @@ plan_set_types_state() {
     rm -f "$tmp"
 }
 
+# 只切换当前页对应的连续序号，避免分页后 a / n 影响看不到的项目。
+plan_set_page_state() {
+    plan="$1"
+    types="$2"
+    state="$3"
+    start="$4"
+    count="$5"
+    tmp="$(mktemp -t mac-as-code-plan.XXXXXX)"
+    awk -F'|' -v types="$types" -v state="$state" -v start="$start" -v count="$count" '
+        BEGIN {
+            OFS = "|"
+            n = split(types, arr, "|")
+            for (i = 1; i <= n; i++) if (arr[i] != "") want[arr[i]] = 1
+            c = 0
+            last = start + count - 1
+        }
+        {
+            if (want[$2]) {
+                c++
+                if (c >= start && c <= last) $1 = state
+            }
+            print
+        }
+    ' "$plan" >"$tmp"
+    /usr/bin/ditto "$tmp" "$plan"
+    rm -f "$tmp"
+}
+
 plan_toggle_nth_of_types() {
     plan="$1"
     types="$2"
@@ -539,6 +586,7 @@ ui_read_key() {
         k|K) printf up ;;
         a|A) printf all ;;
         n|N) printf none ;;
+        e|E) printf edit ;;
         y|Y) printf yes ;;
         "$(printf '\004')") printf eof ;;
         "$(printf '\033')")
@@ -620,13 +668,56 @@ ui_frame() {
     printf '%s' "$UI_FRAME_OUTPUT"
 }
 
-# 返回 0 选中（answer 为序号）、2 退出、3 返回、1 终端不可用。
+# 空行或 -- 是不可选项的分隔线；方向键跳过，Enter 返回可选序号。
+_ui_menu_line() {
+    printf '%s\n' "$UI_MENU_OPTIONS" | sed -n "${1}p"
+}
+
+_ui_menu_separator() {
+    [ -z "$1" ] || [ "$1" = "--" ]
+}
+
+_ui_menu_seek_next() {
+    _ui_menu_found=0
+    _ui_menu_start="$UI_MENU_CURSOR"
+    while [ "$UI_MENU_CURSOR" -lt "$UI_MENU_COUNT" ]; do
+        UI_MENU_CURSOR=$((UI_MENU_CURSOR + 1))
+        _ui_menu_text="$(_ui_menu_line "$UI_MENU_CURSOR")"
+        if ! _ui_menu_separator "$_ui_menu_text"; then
+            _ui_menu_found=1
+            break
+        fi
+    done
+    [ "$_ui_menu_found" -eq 1 ] || UI_MENU_CURSOR="$_ui_menu_start"
+}
+
+_ui_menu_seek_prev() {
+    _ui_menu_found=0
+    _ui_menu_start="$UI_MENU_CURSOR"
+    while [ "$UI_MENU_CURSOR" -gt 1 ]; do
+        UI_MENU_CURSOR=$((UI_MENU_CURSOR - 1))
+        _ui_menu_text="$(_ui_menu_line "$UI_MENU_CURSOR")"
+        if ! _ui_menu_separator "$_ui_menu_text"; then
+            _ui_menu_found=1
+            break
+        fi
+    done
+    [ "$_ui_menu_found" -eq 1 ] || UI_MENU_CURSOR="$_ui_menu_start"
+}
+
+# 返回 0 选中（answer 为可选序号）、2 退出、3 返回、1 终端不可用。
 ui_select() {
     UI_MENU_TITLE="$1"; UI_MENU_CONTEXT="$2"; UI_MENU_MODE="$3"
     shift 3
     UI_MENU_OPTIONS="$(printf '%s\n' "$@")"
     UI_MENU_COUNT=$#; UI_MENU_CURSOR=1
     [ "$UI_MENU_COUNT" -gt 0 ] || return 1
+    while [ "$UI_MENU_CURSOR" -le "$UI_MENU_COUNT" ]; do
+        _ui_menu_text="$(_ui_menu_line "$UI_MENU_CURSOR")"
+        _ui_menu_separator "$_ui_menu_text" || break
+        UI_MENU_CURSOR=$((UI_MENU_CURSOR + 1))
+    done
+    [ "$UI_MENU_CURSOR" -le "$UI_MENU_COUNT" ] || return 1
     ui_enter || return 1
     while true; do
         ui_size
@@ -641,6 +732,7 @@ ui_select() {
             if [ "$UI_CONTEXT_ROWS" -gt 0 ]; then printf '%s\n' "$UI_CONTEXT" | sed -n "1,${UI_CONTEXT_ROWS}p"; fi
             printf '%s\n' "$UI_MENU_OPTIONS" | LC_ALL=C awk -v cur="$UI_MENU_CURSOR" -v first="$UI_MENU_FIRST" -v count="$UI_MENU_VISIBLE" -v width="$UI_COLS" '
                 NR>=first && NR<first+count {
+                    if ($0 == "" || $0 == "--") { print ""; next }
                     label=""; used=4
                     for(i=1;i<=length($0);i++) {
                         c=substr($0,i,1)
@@ -658,9 +750,20 @@ ui_select() {
         ui_frame "$UI_MENU_TITLE" "$UI_MENU_BODY" "↑↓ 选择 · Enter 执行" "$UI_MENU_MODE"
         UI_KEY="$(ui_read_key)"
         case "$UI_KEY" in
-            up) [ "$UI_MENU_CURSOR" -le 1 ] || UI_MENU_CURSOR=$((UI_MENU_CURSOR - 1)) ;;
-            down) [ "$UI_MENU_CURSOR" -ge "$UI_MENU_COUNT" ] || UI_MENU_CURSOR=$((UI_MENU_CURSOR + 1)) ;;
-            enter) answer="$UI_MENU_CURSOR"; ui_leave; return 0 ;;
+            up) _ui_menu_seek_prev ;;
+            down) _ui_menu_seek_next ;;
+            enter)
+                answer=0
+                _ui_menu_i=1
+                while [ "$_ui_menu_i" -le "$UI_MENU_CURSOR" ]; do
+                    _ui_menu_text="$(_ui_menu_line "$_ui_menu_i")"
+                    _ui_menu_separator "$_ui_menu_text" || answer=$((answer + 1))
+                    _ui_menu_i=$((_ui_menu_i + 1))
+                done
+                [ "$answer" -gt 0 ] || continue
+                ui_leave
+                return 0
+                ;;
             back) if [ "$UI_MENU_MODE" != root ]; then ui_leave; return 3; fi ;;
             quit|eof) ui_leave; return 2 ;;
         esac
@@ -688,7 +791,7 @@ ui_document() {
         UI_DOC_BODY="$(printf '%s\n' "$UI_DOC_WRAPPED" | sed -n "${UI_DOC_OFFSET},$((UI_DOC_OFFSET + UI_BODY_ROWS - 1))p")"
         case "$UI_DOC_MODE" in
             confirm) UI_DOC_HINT="y / Enter：$UI_DOC_ACTION · ↑↓ 滚动" ;;
-            login) UI_DOC_HINT='↑↓ 滚动 · Enter 检查登录' ;;
+            login) UI_DOC_HINT='↑↓ 滚动 · Enter 继续' ;;
             *) UI_DOC_HINT="↑↓ 滚动 · $UI_DOC_OFFSET / $UI_DOC_LINES 行" ;;
         esac
         if [ "$UI_DOC_MODE" = confirm ]; then
@@ -861,14 +964,16 @@ checkbox_select_step() {
             }
             END { printf "已选 %d / %d · 第 %d 项\n",selected,idx,cursor }
         ' "$details_file" "$plan")"
-        ui_frame "$title" "$frame" '↑↓ 移动 · 空格切换 · a 全选 · n 清空' back "Enter 保存 · $selection_hint"
+        ui_frame "$title" "$frame" '↑↓ 移动 · 空格切换 · a 本页全选 · n 本页清空 · PgUp/PgDn 翻页' back "Enter 保存 · $selection_hint"
         key="$(ui_read_key)"
         case "$key" in
             up) [ "$cursor" -le 1 ] || cursor=$((cursor - 1)) ;;
             down) [ "$cursor" -ge "$total" ] || cursor=$((cursor + 1)) ;;
+            pageup) cursor=$((cursor - visible_rows)); [ "$cursor" -ge 1 ] || cursor=1 ;;
+            pagedown) cursor=$((cursor + visible_rows)); [ "$cursor" -le "$total" ] || cursor="$total" ;;
             space) plan_toggle_nth_of_types "$plan" "$types" "$cursor" ;;
-            all) plan_set_types_state "$plan" "$types" ON ;;
-            none) plan_set_types_state "$plan" "$types" OFF ;;
+            all) plan_set_page_state "$plan" "$types" ON "$first_row" "$visible_rows" ;;
+            none) plan_set_page_state "$plan" "$types" OFF "$first_row" "$visible_rows" ;;
             enter) selection_status=0; break ;;
             back) cp "$selection_original" "$plan"; selection_status=3; break ;;
             quit|eof) cp "$selection_original" "$plan"; selection_status=2; break ;;
@@ -877,4 +982,94 @@ checkbox_select_step() {
     ui_leave
     rm -f "$selection_original"
     return "$selection_status"
+}
+
+# 执行范围列表：直接编辑勾选，回车执行。
+# 返回 0 执行、3 返回、2 退出、1 终端不可用。
+scope_select_step() {
+    review_title="$1"
+    review_types="$2"
+    review_plan="$3"
+    review_details="$4"
+    review_hint="${5:-空格切换 · Enter 执行 · a/n 仅当前页}"
+    review_total="$(plan_count_types "$review_plan" "$review_types")"
+    if [ "$review_total" -eq 0 ]; then
+        ui_document "$review_title" "没有可执行的项目。"
+        return $?
+    fi
+    [ -t 0 ] && [ -t 1 ] || return 1
+    ui_enter || return 1
+    review_cursor=1
+    while true; do
+        ui_size
+        review_rows=$((UI_BODY_ROWS - 1))
+        [ "$review_rows" -ge 1 ] || review_rows=1
+        review_first=$((((review_cursor - 1) / review_rows) * review_rows + 1))
+        review_body="$(
+            LC_ALL=C awk -F '\t' -v types="$review_types" \
+                -v cursor="$review_cursor" -v first="$review_first" \
+                -v rows="$review_rows" -v total="$review_total" \
+                -v width="$UI_COLS" -v details="$review_details" '
+                function clip(s, limit,   i,c,w,used,out) {
+                    used=6; out=""
+                    for (i=1;i<=length(s);i++) {
+                        c=substr(s,i,1)
+                        if(c ~ /[\300-\337]/) { c=substr(s,i,2); i++ }
+                        else if(c ~ /[\340-\357]/) { c=substr(s,i,3); i+=2 }
+                        else if(c ~ /[\360-\367]/) { c=substr(s,i,4); i+=3 }
+                        w=(c ~ /^[ -~]$/)?1:2
+                        if(used+w>limit) return out "…"
+                        out=out c; used+=w
+                    }
+                    return out
+                }
+                BEGIN {
+                    n = split(types, arr, "|")
+                    for (i = 1; i <= n; i++) if (arr[i] != "") want[arr[i]] = 1
+                }
+                FILENAME == details {
+                    split($0, d, "\t")
+                    statuses[d[1] SUBSEP d[2]] = d[3]
+                    labels[d[1] SUBSEP d[2]] = d[4]
+                    next
+                }
+                {
+                    split($0, p, "|")
+                    if (!(p[2] in want)) next
+                    idx++
+                    if (p[1] == "ON") selected++
+                    if (idx < first || idx >= first + rows) next
+                    key = p[2] SUBSEP p[3]
+                    text = labels[key]
+                    if (text == "") text = p[3]
+                    if (statuses[key] == "manual") text = text " [需确认]"
+                    installed = 0
+                    if (statuses[key] == "met" && (p[2] == "brew" || p[2] == "cask" || p[2] == "mas" || p[2] == "github-release" || p[2] == "recipe")) installed = 1
+                    suffix = installed ? " ★" : ""
+                    limit = installed ? width - 3 : width - 1
+                    printf "%s%s %s%s%s\n", (idx == cursor ? "\033[36m› " : "  "), (p[1] == "ON" ? "[x]" : "[ ]"), clip(text, limit), suffix, "\033[0m"
+                }
+                END {
+                    pages = int((total + rows - 1) / rows)
+                    if (pages < 1) pages = 1
+                    page = int((first - 1) / rows) + 1
+                    printf "\033[90m已选 %d / %d · 第 %d/%d 页\033[0m\n", selected, total, page, pages
+                }
+            ' "$review_details" "$review_plan"
+        )"
+        ui_frame "$review_title" "$review_body" "$review_hint" back
+        review_key="$(ui_read_key)"
+        case "$review_key" in
+            up) [ "$review_cursor" -le 1 ] || review_cursor=$((review_cursor - 1)) ;;
+            down) [ "$review_cursor" -ge "$review_total" ] || review_cursor=$((review_cursor + 1)) ;;
+            pageup) review_cursor=$((review_cursor - review_rows)); [ "$review_cursor" -ge 1 ] || review_cursor=1 ;;
+            pagedown) review_cursor=$((review_cursor + review_rows)); [ "$review_cursor" -le "$review_total" ] || review_cursor="$review_total" ;;
+            space) plan_toggle_nth_of_types "$review_plan" "$review_types" "$review_cursor" ;;
+            all) plan_set_page_state "$review_plan" "$review_types" ON "$review_first" "$review_rows" ;;
+            none) plan_set_page_state "$review_plan" "$review_types" OFF "$review_first" "$review_rows" ;;
+            enter) ui_leave; return 0 ;;
+            back) ui_leave; return 3 ;;
+            quit|eof) ui_leave; return 2 ;;
+        esac
+    done
 }

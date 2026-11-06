@@ -59,54 +59,6 @@ path_input() {
     esac
 }
 
-adjust_selection() {
-    while true; do
-        menu "调整范围" "选择要调整的类别" back "全部" "软件 / 环境" "系统设置" "Dock"
-        case "$answer" in
-            b) return 0 ;;
-            1) selection_types='defaults|dock|brew|cask|mas|recipe|github-release' ;;
-            2) selection_types='brew|cask|mas|recipe|github-release' ;;
-            3) selection_types=defaults ;;
-            4) selection_types=dock ;;
-            *) echo "请选择范围编号。"; continue ;;
-        esac
-        export MAC_AS_CODE_UI_DETAILS="$FLOW_DETAILS"
-        checkbox_select_step "调整本次操作" "$selection_types" "$FLOW_PLAN" 'Enter 保存选择，返回配置菜单'
-        result=$?
-        case "$result" in
-            0) return 0 ;;
-            2) exit 0 ;;
-            3) continue ;;
-            *) return "$result" ;;
-        esac
-    done
-}
-
-show_details() {
-    notice "差异详情" "$(awk -F '\t' '
-        function group(t) {
-            if (t == "defaults") return "系统设置"
-            if (t == "dock") return "Dock"
-            if (t == "brew") return "软件 / 环境 · Homebrew Formula"
-            if (t == "cask") return "软件 / 环境 · Homebrew Cask"
-            if (t == "mas") return "软件 / 环境 · App Store"
-            if (t == "recipe") return "软件 / 环境 · Recipe"
-            if (t == "github-release") return "软件 / 环境 · GitHub Releases"
-            return "其他项目 · " t
-        }
-        $3 != "met" {
-            if ($1 != last_type) {
-                if (last_type != "") print ""
-                print "── " group($1) " ──"
-                last_type = $1
-            }
-            print $4 ($3 == "manual" ? " [需确认]" : "")
-            print "  " $5
-            print ""
-        }
-    ' "$FLOW_DETAILS")"
-}
-
 show_summary() {
     awk -F '\t' '
         $3 == "met" { met++; next }
@@ -116,34 +68,141 @@ show_summary() {
         { apps++ }
         END {
             printf "软件缺少 %d · 系统差异 %d · Dock 差异 %d\n", apps, settings, dock
-            printf "待确认 %d · 已满足 %d（已折叠）\n", manual, met
+            printf "待确认 %d · 已满足 %d\n", manual, met
         }
     ' "$FLOW_DETAILS"
-    selected_count="$(awk -F '|' '$1 == "ON" { n++ } END { print n+0 }' "$FLOW_PLAN")"
-    echo "本次已选 $selected_count 项。只修改电脑，不写入配置清单。"
 }
 
 # 将旧选择映射到新检测结果，不把新出现的差异自动加入已确认计划。
 merge_selection() {
-    awk -F '|' 'FILENAME == ARGV[1] { if ($1 == "ON") selected[$2 SUBSEP $3] = 1; next }
+    awk -F '|' -v first="$FLOW_PLAN" 'FILENAME == first { if ($1 == "ON") selected[$2 SUBSEP $3] = 1; next }
         { $1 = (($2 SUBSEP $3) in selected) ? "ON" : "OFF"; print }
     ' OFS='|' "$FLOW_PLAN" "$WORK_DIR/fresh.plan" >"$WORK_DIR/merged.plan"
     cp "$WORK_DIR/merged.plan" "$FLOW_PLAN"
 }
 
+# 执行范围：配置（系统设置 + Dock）/ 软件（Homebrew + App Store + GitHub Releases）/ Recipes / 全部。
+execution_scope_types() {
+    case "$1" in
+        1) printf 'defaults|dock' ;;
+        2) printf 'brew|cask|mas|github-release' ;;
+        3) printf 'recipe' ;;
+        4) printf 'defaults|dock|brew|cask|mas|recipe|github-release' ;;
+    esac
+}
+
+execution_scope_label() {
+    case "$1" in
+        1) printf '配置' ;;
+        2) printf '软件' ;;
+        3) printf 'Recipe' ;;
+        4) printf '全部' ;;
+    esac
+}
+
+execution_scope_hint() {
+    case "$1" in
+        1|4) printf '空格切换 · Enter 执行 · [需确认] 默认不选 · a/n 仅当前页' ;;
+        2|3) printf '空格切换 · Enter 执行 · a/n 仅当前页' ;;
+    esac
+}
+
+retry_available() {
+    [ -s "$RETRY_PLAN" ] && grep -q '^ON|' "$RETRY_PLAN"
+}
+
+plan_count_on_types() {
+    plan_file="$1"
+    plan_types="$2"
+    awk -F '|' -v types="$plan_types" '
+        BEGIN { n = split(types, arr, "|"); for (i = 1; i <= n; i++) want[arr[i]] = 1 }
+        $1 == "ON" && ($2 in want) { count++ }
+        END { print count + 0 }
+    ' "$plan_file"
+}
+
+plan_filter_on_types() {
+    plan_file="$1"
+    plan_types="$2"
+    awk -F '|' -v types="$plan_types" '
+        BEGIN { n = split(types, arr, "|"); for (i = 1; i <= n; i++) want[arr[i]] = 1 }
+        $1 == "ON" && ($2 in want) { print }
+    ' "$plan_file"
+}
+
 configure() {
+    configure_mode="${1:-normal}"
+    if [ "$configure_mode" = "retry" ] && ! retry_available; then
+        notice "重试上次失败项" "没有记录的失败项。"
+        return 0
+    fi
     ui_execution "检测这台 Mac" "正在读取当前设置与软件状态…"
-    sh "$SCRIPTS_DIR/plan.sh" "$FLOW_PLAN" "$FLOW_DETAILS" || return 1
+    if [ "$configure_mode" = "retry" ]; then
+        cp "$RETRY_PLAN" "$FLOW_PLAN"
+        sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/fresh.plan" "$WORK_DIR/fresh.tsv" || return 1
+        merge_selection
+        cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
+        if [ "$(awk -F '|' '$1 == "ON" { n++ } END { print n+0 }' "$FLOW_PLAN")" -eq 0 ]; then
+            notice "重试上次失败项" "失败项已全部满足。"
+            rm -f "$RETRY_PLAN"
+            return 0
+        fi
+        notice "重试上次失败项" "已选中仍未完成的失败项；可进入范围列表调整后执行。"
+    else
+        sh "$SCRIPTS_DIR/plan.sh" "$FLOW_PLAN" "$FLOW_DETAILS" || return 1
+    fi
     while true; do
         summary_text="$(show_summary)"
-        selected_count="$(awk -F '|' '$1 == "ON" { n++ } END { print n+0 }' "$FLOW_PLAN")"
         menu "配置这台 Mac" "$summary_text" back \
-            "应用已选项" "调整选择" "查看详情" "将本机软件加入配置清单" "重试上次失败项"
+            "从仓库配置电脑" \
+            "从电脑同步到仓库"
         case "$answer" in
             b) return 0 ;;
-            2) adjust_selection || return $? ;;
-            3) show_details ;;
-            4)
+            1)
+                while true; do
+                    menu "从仓库配置电脑" "选择要应用的范围；列表可直接空格切换，回车执行。" back \
+                        "配置" \
+                        "软件" \
+                        "Recipe" \
+                        "全部"
+                    case "$answer" in
+                        b) break ;;
+                        1|2|3|4) ;;
+                        *) continue ;;
+                    esac
+                    apply_scope="$answer"
+                    apply_types="$(execution_scope_types "$apply_scope")"
+                    apply_label="$(execution_scope_label "$apply_scope")"
+                    apply_hint="$(execution_scope_hint "$apply_scope")"
+                    apply_total="$(plan_count_types "$FLOW_PLAN" "$apply_types")"
+                    if [ "$apply_total" -eq 0 ]; then
+                        notice "$apply_label" "该范围没有项目。"
+                        continue
+                    fi
+                    scope_select_step "$apply_label" "$apply_types" "$FLOW_PLAN" "$FLOW_DETAILS" "$apply_hint"
+                    result=$?
+                    case "$result" in
+                        0) ;;
+                        2) exit 0 ;;
+                        3) continue ;;
+                        *) return 1 ;;
+                    esac
+                    apply_count="$(plan_count_on_types "$FLOW_PLAN" "$apply_types")"
+                    if [ "$apply_count" -eq 0 ]; then
+                        notice "$apply_label" "没有勾选任何项目。"
+                        continue
+                    fi
+                    plan_filter_on_types "$FLOW_PLAN" "$apply_types" >"$WORK_DIR/scope.plan"
+                    ui_execution "$apply_label"
+                    MAC_AS_CODE_INPUT_PLAN="$WORK_DIR/scope.plan" sh "$SCRIPTS_DIR/apply.sh"
+                    result=$?
+                    [ "$result" -ne 2 ] || exit 0
+                    if [ "$result" -eq 3 ]; then continue; fi
+                    wait_back
+                    return "$result"
+                done
+                ;;
+            2)
                 ui_execution "检测本机软件"
                 sh "$SCRIPTS_DIR/audit.sh" append --refresh || {
                     result=$?
@@ -153,38 +212,6 @@ configure() {
                 sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/fresh.plan" "$WORK_DIR/fresh.tsv" || return 1
                 merge_selection
                 cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
-                ;;
-            5)
-                if [ ! -s "$RETRY_PLAN" ]; then
-                    notice "重试失败项" "没有记录的失败项。"
-                else
-                    cp "$RETRY_PLAN" "$FLOW_PLAN"
-                    sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/fresh.plan" "$WORK_DIR/fresh.tsv" || return 1
-                    merge_selection
-                    cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
-                    notice "重试失败项" "已选中仍未完成的失败项；可查看详情后应用。"
-                fi
-                ;;
-            1)
-                [ "$selected_count" -gt 0 ] || { notice "应用已选项" "没有需要执行的已选项。"; continue; }
-                apply_preview="$(awk -F '|' '$1 == "ON" { label = ($2 == "brew" || $2 == "cask" || $2 == "mas") ? $3 : $4; print "  - " label }' "$FLOW_PLAN")"
-                confirm "确认应用以上项目？" "$apply_preview
-设置可能重启 Finder / Dock；软件安装可能需要管理员授权或 App Store 登录。" || continue
-                ui_execution "复核操作计划" "正在复核当前状态…"
-                sh "$SCRIPTS_DIR/plan.sh" "$WORK_DIR/fresh.plan" "$WORK_DIR/fresh.tsv" || return 1
-                if ! cmp -s "$FLOW_DETAILS" "$WORK_DIR/fresh.tsv"; then
-                    merge_selection
-                    cp "$WORK_DIR/fresh.tsv" "$FLOW_DETAILS"
-                    notice "计划已更新" "状态已变化，已更新计划，请重新检查。"
-                    continue
-                fi
-                ui_execution "应用配置"
-                MAC_AS_CODE_INPUT_PLAN="$FLOW_PLAN" sh "$SCRIPTS_DIR/apply.sh"
-                result=$?
-                [ "$result" -ne 2 ] || exit 0
-                if [ "$result" -eq 3 ]; then continue; fi
-                wait_back
-                return "$result"
                 ;;
             *) echo "请选择任务编号，或 q 退出。" ;;
         esac
@@ -206,7 +233,7 @@ backup() {
         confirm "开始备份？" "将在 $backup_root 新建带时间的快照。
 范围：SSH、Git、Zsh、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash、Brave 插件配置。
 会临时退出 Keyboard Maestro 和 Brave，结束后尝试恢复原先运行状态。" || continue
-        ui_execution "备份这台 Mac"
+        ui_execution "备份个人数据"
         MAC_AS_CODE_BACKUP_CONFIRMED=1 bash "$SCRIPTS_DIR/backup.sh" "$backup_root"
         result=$?
         wait_back
@@ -313,11 +340,19 @@ restore() {
 
 printf '\033[2J\033[H'
 while true; do
-    menu "今天想做什么？" "" root \
+    retry_ready=0
+    retry_available && retry_ready=1
+    set -- \
         "配置这台 Mac       查看差异、安装软件、应用设置" \
-        "备份这台 Mac       保存个人配置和应用数据" \
-        "从备份恢复         恢复个人数据" \
+        "" \
+        "备份个人数据       保存个人配置和应用数据" \
+        "恢复个人数据       恢复个人数据" \
+        "" \
         "检查环境           查看工具与安装状态"
+    if [ "$retry_ready" -eq 1 ]; then
+        set -- "$@" "重试上次失败项     重新检测并选中未完成的失败项"
+    fi
+    menu "今天想做什么？" "" root "$@"
     TARGET_PATH=""
     case "$answer" in
         1) configure || notice "配置未完成" "请查看执行结果，处理失败后可重试。" ;;
@@ -329,5 +364,10 @@ while true; do
                 "$environment_output" sh "$SCRIPTS_DIR/doctor.sh" || :
             environment_report="$(cat "$environment_output")"
             notice "环境检查" "$environment_report" ;;
+        5)
+            if [ "$retry_ready" -eq 1 ]; then
+                configure retry || notice "重试未完成" "请查看执行结果，处理失败后可重试。"
+            fi
+            ;;
     esac
 done

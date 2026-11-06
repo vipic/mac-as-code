@@ -91,18 +91,18 @@ pass() { echo "通过：$*"; }
 sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/plan" "$SANDBOX/details"
 grep -q '^ON|defaults|grouped|' "$SANDBOX/plan" || fail '多键差异未被选中'
 [ "$(grep -c '|grouped|' "$SANDBOX/plan")" -eq 1 ] || fail '多键设置重复执行'
-! grep -q '|matched|' "$SANDBOX/plan" || fail '已满足设置未折叠'
+grep -q '^ON|defaults|matched|' "$SANDBOX/plan" || fail '已满足设置未列出'
 grep -q '^OFF|defaults|complex|' "$SANDBOX/plan" || fail '复合设置默认执行'
 grep -q '^OFF|dock|launchpad-grid|' "$SANDBOX/plan" || fail '重置布局默认执行'
 grep -q '^OFF|recipe|custom|' "$SANDBOX/plan" || fail '未知 recipe 默认执行'
 grep -q '^ON|brew|missing|' "$SANDBOX/plan" || fail '未安装软件未进入计划'
 grep -q '^ON|github-release|missing|' "$SANDBOX/plan" || fail 'GitHub 软件未进入计划'
-! grep -q '|demo|' "$SANDBOX/plan" || fail '已存在 GitHub 软件重复安装'
-! grep -q '|installed|' "$SANDBOX/plan" || fail '已安装软件重复安装'
-! grep -q '|alias|' "$SANDBOX/plan" || fail 'Homebrew formula 别名被误判未安装'
-! grep -q '|alias-cask|' "$SANDBOX/plan" || fail 'Homebrew cask 别名被误判未安装'
-! grep -q '|external-cask|' "$SANDBOX/plan" || fail '手工安装 cask 重复安装'
-! grep -q '|Store App|' "$SANDBOX/plan" || fail '已安装 MAS 应用重复安装'
+grep -q '^ON|github-release|demo|' "$SANDBOX/plan" || fail '已存在 GitHub 软件未列出'
+grep -q '^ON|brew|installed|' "$SANDBOX/plan" || fail '已安装 formula 未列出'
+grep -q '^ON|brew|alias|' "$SANDBOX/plan" || fail 'Homebrew formula 别名未列出'
+grep -q '^ON|cask|alias-cask|' "$SANDBOX/plan" || fail 'Homebrew cask 别名未列出'
+grep -q '^ON|cask|external-cask|' "$SANDBOX/plan" || fail '手工安装 cask 未列出'
+grep -q '^ON|mas|Store App|' "$SANDBOX/plan" || fail '已安装 MAS 应用未列出'
 grep -q 'Two: 0 → 2' "$SANDBOX/details" || fail '缺少当前值与目标值'
 [ "$(grep -c '^list --formula --full-name$' "$TEST_BREW_CALLS")" -eq 1 ] || fail 'formula 清单未只读取一次'
 [ "$(grep -c '^list --cask --full-name$' "$TEST_BREW_CALLS")" -eq 1 ] || fail 'cask 清单未只读取一次'
@@ -110,7 +110,7 @@ grep -q 'Two: 0 → 2' "$SANDBOX/details" || fail '缺少当前值与目标值'
 ! grep -q '^list --cask present-cask$' "$TEST_BREW_CALLS" || fail '批量命中 cask 仍被逐项查询'
 grep -q '^list --formula alias$' "$TEST_BREW_CALLS" || fail 'formula 别名未做回退验证'
 grep -q '^list --cask alias-cask$' "$TEST_BREW_CALLS" || fail 'cask 别名未做回退验证'
-pass '实时计划去重、折叠已满足项，并保留需确认项'
+pass '实时计划列出已满足和待处理项，并保留需确认项'
 
 if TEST_BREW_FAIL_FORMULA=1 sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/failed.plan" "$SANDBOX/failed.details" >"$SANDBOX/out" 2>&1; then
     fail 'formula 清单读取失败后仍生成计划'
@@ -128,7 +128,7 @@ pass 'Homebrew 清单读取失败时明确停止'
 sed 's/Test|Two|0/Test|Two|2/' "$TEST_DEFAULTS_STATE" >"$SANDBOX/new"
 mv "$SANDBOX/new" "$TEST_DEFAULTS_STATE"
 sh "$ROOT_DIR/scripts/plan.sh" "$SANDBOX/plan" "$SANDBOX/details"
-! grep -q '|grouped|' "$SANDBOX/plan" || fail '计划读取了过期状态'
+awk -F '\t' '$1 == "defaults" && $2 == "grouped" && $3 == "met" { found = 1 } END { exit found ? 0 : 1 }' "$SANDBOX/details" || fail '计划读取了过期状态'
 [ ! -d "$SANDBOX/cache" ] || fail '生成计划不应写入审计缓存'
 pass '计划始终读取实时状态'
 
@@ -241,13 +241,8 @@ pass '执行器仅应用选中项，并只记录失败项供重试'
 # 确认后复核发现变化时必须重新确认，不能执行过期计划。
 cat >"$SANDBOX/repo/scripts/plan.sh" <<'EOF'
 #!/bin/sh
-set -eu
-n=0
-[ ! -f "$TEST_SCAN_COUNT" ] || n="$(cat "$TEST_SCAN_COUNT")"
-n=$((n+1))
-printf '%s' "$n" >"$TEST_SCAN_COUNT"
-printf 'ON|defaults|first|测试设置\nOFF|dock|layout|测试 Dock\nOFF|recipe|step|测试 Recipe\n' >"$1"
-printf 'defaults\tfirst\tpending\t测试设置\t%s → 1\ndock\tlayout\tmanual\t测试 Dock\t需确认\nrecipe\tstep\tmanual\t测试 Recipe\t需确认\n' "$n" >"$2"
+printf 'ON|defaults|first|测试设置\nON|defaults|key-repeat|按键输入间隔\nOFF|dock|layout|测试 Dock\nON|brew|installed|已安装软件\nON|recipe|oh-my-zsh|Oh My Zsh\n' >"$1"
+printf 'defaults\tfirst\tpending\t测试设置\t1 → 1\ndefaults\tkey-repeat\tmet\t按键输入间隔\t与配置清单一致\ndock\tlayout\tmanual\t测试 Dock\t需确认\nbrew\tinstalled\tmet\t已安装软件\t已安装\nrecipe\toh-my-zsh\tmet\tOh My Zsh\t已安装\n' >"$2"
 EOF
 cat >"$SANDBOX/repo/scripts/apply.sh" <<'EOF'
 #!/bin/sh
@@ -299,50 +294,47 @@ status=$?
 echo TTY_RESTORED
 exit "$status"
 EOF
+mkdir -p "$MAC_AS_CODE_STATE_DIR"
+printf 'ON|defaults|fail|失败的设置\n' >"$MAC_AS_CODE_STATE_DIR/retry.plan"
+rm -f "$TEST_EXECUTED"
 expect <<'EOF'
 source $env(TEST_UI_HELPERS)
 spawn sh "$env(TEST_REPO)/launch-test.sh"
 see {\x1b\[2J}
 page "今天想做什么"
+see "重试上次失败项"
+see "备份个人数据"
+see "恢复个人数据"
 key "0"
 page "今天想做什么"
-move_without_clear "\033\[B" "备份这台 Mac"
+move_without_clear "\033\[B" "备份个人数据"
 move_without_clear "\033\[A" "配置这台 Mac"
 choose 1 ""
 page "配置这台 Mac"
-choose 2 "调整选择"
-page "调整范围"
-choose 1 ""
-see "调整本次操作"
-see "── 系统设置 ──"
-see "── Dock ──"
-see "软件 / 环境 · Recipe"
-see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
-see "Enter 保存"
-key b
-page "调整范围"
-key b
-page "配置这台 Mac"
-choose 3 "查看详情"
-see "差异详情"
-see "── 系统设置 ──"
-see "── Dock ──"
-see {\x1b\[[0-9]+;1H\x1b\[90mb 返回 · q 退出}
-key b
-page "配置这台 Mac"
-choose 1 ""
-confirmation "确认应用以上项目" "确认应用以上项目"
-key b
-page "配置这台 Mac"
-choose 1 ""
-confirmation "确认应用以上项目" "确认应用以上项目"
-key y
-page "计划已更新"
-key b
-page "配置这台 Mac"
+choose 1 "从仓库配置电脑"
+page "从仓库配置电脑"
+see "配置"
+see "软件"
+see "Recipe"
+see "全部"
+choose 1 "配置"
+see "空格切换 · Enter 执行"
+see {\[x\] 测试设置}
+see {\[x\] 按键输入间隔}
+see {\[ \] 测试 Dock}
+key "\033\[B"
+see {› \[x\] 按键输入间隔}
+key "\033\[B"
+see {› \[ \] 测试 Dock}
+key " "
+see {› \[x\] 测试 Dock}
+key "\r"
+see "b 返回主菜单"
+if {![file exists $env(TEST_EXECUTED)]} { puts stderr "未执行所选范围"; exit 1 }
 key b
 page "今天想做什么"
-choose 2 "备份这台 Mac"
+choose 2 "备份个人数据"
+
 page "备份位置"
 choose 1 ""
 confirmation "开始备份" "开始备份"
@@ -350,7 +342,7 @@ key b
 page "备份位置"
 key b
 page "今天想做什么"
-choose 3 "从备份恢复"
+choose 3 "恢复个人数据"
 page "选择快照"
 choose 1 ""
 page "输入快照路径"
@@ -439,11 +431,10 @@ stty rows 16 columns 48 < $spawn_out(slave,name)
 page "今天想做什么"
 choose 1 ""
 page "配置这台 Mac"
-choose 2 "调整选择"
-page "调整范围"
-choose 1 ""
-page "调整本次操作"
-see "Enter 保存"
+choose 1 "从仓库配置电脑"
+page "从仓库配置电脑"
+choose 1 "配置"
+see "空格切换"
 key q
 see TTY_RESTORED
 done
@@ -502,7 +493,7 @@ expect <<'EOF'
 source $env(TEST_UI_HELPERS)
 spawn sh "$env(TEST_REPO)/launch-test.sh"
 page "今天想做什么"
-choose 2 "备份这台 Mac"
+choose 2 "备份个人数据"
 page "备份位置"
 choose 2 "输入其他目录"
 page "输入备份根目录"
@@ -513,7 +504,7 @@ see "测试备份完成"
 see "q 退出"
 key b
 page "今天想做什么"
-choose 3 "从备份恢复"
+choose 3 "恢复个人数据"
 page "选择快照"
 choose 1 ""
 page "输入快照路径"
@@ -530,7 +521,7 @@ done
 
 spawn sh "$env(TEST_REPO)/launch-test.sh"
 page "今天想做什么"
-choose 2 "备份这台 Mac"
+choose 2 "备份个人数据"
 page "备份位置"
 choose 2 "输入其他目录"
 page "输入备份根目录"

@@ -10,6 +10,7 @@ for script in ./*.sh ./scripts/*.sh ./config/*.sh ./config/recipes/*.sh ./tests/
 done
 shellcheck -x -P SCRIPTDIR ./*.sh ./scripts/*.sh ./config/*.sh ./config/recipes/*.sh ./tests/*.sh ./tests/fixtures/*.sh
 sh scripts/check_format.sh --self-test
+sh tests/common_test.sh
 sh tests/audit_test.sh
 sh tests/workflow_test.sh
 echo "全部校验通过。"
