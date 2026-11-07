@@ -461,12 +461,22 @@ audit_defaults() {
     audit_note "统计：与仓库一致 ${matched_count}，[warn] 与仓库不同 ${mismatch_count}，无法自动比较 ${unsupported_count}"
 }
 
+# Brewfile 允许写 tap 全名（user/tap/name），而 brew list / brew leaves 只输出短名。
+# 比较时统一按短名处理，否则同一个 cask 会被判成「本机有、清单没有」。
+package_short_name() {
+    printf '%s' "${1##*/}"
+}
+
 desired_contains() {
     desired_file="$1"
     desired_type="$2"
-    desired_name="$3"
+    desired_name="$(package_short_name "$3")"
     awk -F'|' -v t="$desired_type" -v n="$desired_name" '
-        $1 == t && $2 == n { found = 1 }
+        function short_name(value) {
+            sub(/^.*\//, "", value)
+            return value
+        }
+        $1 == t && short_name($2) == n { found = 1 }
         END { exit found ? 0 : 1 }
     ' "$desired_file"
 }
@@ -505,6 +515,23 @@ cask_application_exists() {
 $artifact_names
 EOF
     return 1
+}
+
+# 列出本机由 Homebrew cask 管理的 .app（Caskroom 中指向 /Applications 的符号链接）。
+# 公开 cask 清单不一定收录第三方 tap，不能只靠它判断应用是否已由其他 cask 管理。
+installed_cask_apps() {
+    _cask_apps_installed_file="$1"
+    _cask_apps_root="$(brew --caskroom 2>/dev/null)" || return 0
+    [ -n "$_cask_apps_root" ] || return 0
+    [ -d "$_cask_apps_root" ] || return 0
+    find "$_cask_apps_root" -maxdepth 3 -type l -name '*.app' -print 2>/dev/null |
+        while IFS= read -r _cask_apps_link || [ -n "${_cask_apps_link:-}" ]; do
+            [ -n "${_cask_apps_link:-}" ] || continue
+            _cask_apps_relative="${_cask_apps_link#"$_cask_apps_root"/}"
+            _cask_apps_token="${_cask_apps_relative%%/*}"
+            grep -Fqx "$_cask_apps_token" "$_cask_apps_installed_file" || continue
+            printf '%s\n' "${_cask_apps_link##*/}" | tr '[:upper:]' '[:lower:]'
+        done | sort -u
 }
 
 build_cask_artifact_catalog() {
@@ -563,13 +590,18 @@ audit_manual_cask_apps() {
         rm -f "$artifact_catalog" "$local_apps" "$github_apps"
         return 1
     }
-    if ! build_cask_artifact_catalog "$artifact_catalog"; then
+    caskroom_apps="$(mktemp -t mac-as-code-caskroom-apps.XXXXXX)" || {
         rm -f "$artifact_catalog" "$local_apps" "$github_apps" "$seen_casks"
+        return 1
+    }
+    if ! build_cask_artifact_catalog "$artifact_catalog"; then
+        rm -f "$artifact_catalog" "$local_apps" "$github_apps" "$seen_casks" "$caskroom_apps"
         return 1
     fi
     find "$APPLICATIONS_DIR" -maxdepth 1 -type d -name '*.app' -print 2>/dev/null | sort >"$local_apps"
     parse_github_release_apps "$GITHUB_APPS_CONFIG" |
         awk -F'|' '{ print tolower($4 ".app") }' >"$github_apps"
+    installed_cask_apps "$installed_casks_file" >"$caskroom_apps"
     : >"$seen_casks"
     MANUAL_CASK_COUNT=0
     AMBIGUOUS_CASK_COUNT=0
@@ -580,6 +612,7 @@ audit_manual_cask_apps() {
         app_lower="$(printf '%s' "$app_filename" | tr '[:upper:]' '[:lower:]')"
         [ -f "$app_path/Contents/_MASReceipt/receipt" ] && continue
         grep -Fqx "$app_lower" "$github_apps" && continue
+        grep -Fqx "$app_lower" "$caskroom_apps" && continue
 
         candidates="$(awk -F'\t' -v wanted="$app_lower" 'tolower($2) == wanted { print $1 }' "$artifact_catalog" | sort -u)"
         [ -n "$candidates" ] || continue
@@ -617,7 +650,7 @@ EOF
         record_action add-manual-cask cask "$selected_cask" "$app_filename"
     done <"$local_apps"
 
-    rm -f "$artifact_catalog" "$local_apps" "$github_apps" "$seen_casks"
+    rm -f "$artifact_catalog" "$local_apps" "$github_apps" "$seen_casks" "$caskroom_apps"
 }
 
 mas_application_exists() {
@@ -670,14 +703,14 @@ audit_apps() {
         installed=0
         case "$package_type" in
             brew)
-                if command -v brew >/dev/null 2>&1 && brew list --formula "$name" >/dev/null 2>&1; then
+                if command -v brew >/dev/null 2>&1 && brew list --formula "$(package_short_name "$name")" >/dev/null 2>&1; then
                     installed=1
                 elif ! command -v brew >/dev/null 2>&1; then
                     unavailable=1
                 fi
                 ;;
             cask)
-                if command -v brew >/dev/null 2>&1 && brew list --cask "$name" >/dev/null 2>&1; then
+                if command -v brew >/dev/null 2>&1 && brew list --cask "$(package_short_name "$name")" >/dev/null 2>&1; then
                     installed=1
                 elif command -v brew >/dev/null 2>&1 && cask_application_exists "$name"; then
                     installed=1

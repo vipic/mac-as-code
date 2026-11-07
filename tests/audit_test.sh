@@ -11,6 +11,7 @@ STATE_DIR="$SANDBOX/state"
 APPLICATIONS_DIR="$SANDBOX/Applications"
 DEFAULTS_STATE="$SANDBOX/defaults-state"
 CASK_ARTIFACTS="$SANDBOX/cask-artifacts.tsv"
+CASKROOM="$SANDBOX/caskroom"
 PASSED=0
 FAILED=0
 
@@ -19,12 +20,15 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$APPLICATIONS_DIR/Demo.app" "$APPLICATIONS_DIR/Adoptable.app" "$APPLICATIONS_DIR/Manual.app"
+mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$APPLICATIONS_DIR/Demo.app" "$APPLICATIONS_DIR/Adoptable.app" "$APPLICATIONS_DIR/Manual.app" "$APPLICATIONS_DIR/Hex.app"
+mkdir -p "$CASKROOM/hex/1.0"
+ln -s "$APPLICATIONS_DIR/Hex.app" "$CASKROOM/hex/1.0/Hex.app"
 
 cat >"$CASK_ARTIFACTS" <<'EOF'
 demo-cask	Demo.app
 adoptable	Adoptable.app
 manual-cask	Manual.app
+kitlangton-hex	Hex.app
 EOF
 
 cat >"$CONFIG_DIR/defaults_config.sh" <<'EOF'
@@ -47,6 +51,7 @@ cat >"$CONFIG_DIR/Brewfile" <<'EOF'
 brew "wanted-formula"
 cask "wanted-cask"
 cask "adoptable"
+cask "acme/tap/hex"
 mas "Wanted Store", id: 123
 EOF
 
@@ -74,16 +79,20 @@ EOF
 cat >"$BIN_DIR/brew" <<'EOF'
 #!/bin/sh
 case "$1:$2:${3:-}" in
-    list:--formula:wanted-formula|list:--cask:wanted-cask) exit 0 ;;
+    --caskroom::) printf '%s\n' "$MOCK_CASKROOM" ;;
+    list:--formula:wanted-formula|list:--cask:wanted-cask|list:--cask:hex) exit 0 ;;
     leaves::)
         printf 'wanted-formula\nextra-formula\n'
         ;;
     list:--cask:)
-        printf 'wanted-cask\nextra-cask\n'
+        printf 'wanted-cask\nextra-cask\nhex\n'
         ;;
     list:--formula:*|list:--cask:*) exit 1 ;;
     info:--cask:adoptable)
         printf '==> Artifacts\nAdoptable.app (App)\n'
+        ;;
+    info:--cask:hex)
+        printf '==> Artifacts\nHex.app (App)\n'
         ;;
     info:--cask:*) exit 1 ;;
     *) exit 1 ;;
@@ -104,6 +113,7 @@ chmod +x "$BIN_DIR/defaults" "$BIN_DIR/brew" "$BIN_DIR/mas"
 run_audit() {
     PATH="$BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin" \
     MOCK_DEFAULTS_STATE="$DEFAULTS_STATE" \
+    MOCK_CASKROOM="$CASKROOM" \
     MAC_AS_CODE_DEFAULTS_CONFIG="$CONFIG_DIR/defaults_config.sh" \
     MAC_AS_CODE_DOCK_CONFIG="$CONFIG_DIR/defaults_dock.sh" \
     MAC_AS_CODE_BREWFILE="$CONFIG_DIR/Brewfile" \
@@ -184,6 +194,11 @@ expect_contains "$SCENARIO_OUTPUT" "[warn] 与仓库不同"
 expect_contains "$SANDBOX/cache/actions.tsv" "add-brewfile"
 expect_contains "$SANDBOX/cache/actions.tsv" "add-manual-cask"
 expect_not_contains "$SANDBOX/cache/actions.tsv" "adopt-cask"
+# Brewfile 写 tap 全名、brew list 只给短名时不得误报；该应用已由 hex cask 管理，
+# 即使公开 cask 清单只收录了 kitlangton-hex，也不能再建议追加同名 cask。
+expect_not_contains "$SCENARIO_OUTPUT" "kitlangton-hex"
+expect_not_contains "$SANDBOX/cache/actions.tsv" "$(printf 'cask\thex')"
+expect_not_contains "$SANDBOX/cache/actions.tsv" "kitlangton-hex"
 scenario_end
 
 cat >"$DEFAULTS_STATE" <<'EOF'
