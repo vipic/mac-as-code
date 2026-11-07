@@ -231,8 +231,8 @@ backup() {
                 backup_root="$answer" ;;
         esac
         confirm "开始备份？" "将在 $backup_root 新建带时间的快照。
-范围：SSH、Git、Zsh、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash、Brave 插件配置。
-会临时退出 Keyboard Maestro 和 Brave，结束后尝试恢复原先运行状态。" || continue
+范围：SSH、Git、Zsh、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash。
+会临时退出 Keyboard Maestro，结束后尝试恢复原先运行状态。" || continue
         ui_execution "备份个人数据"
         MAC_AS_CODE_BACKUP_CONFIRMED=1 bash "$SCRIPTS_DIR/backup.sh" "$backup_root"
         result=$?
@@ -276,7 +276,6 @@ restore_apps() {
     [ ! -f "$TARGET_PATH/preferences/pl.maketheweb.cleanshotx.plist" ] || echo cleanshot >>"$WORK_DIR/needed"
     [ ! -d "$TARGET_PATH/application-support/Keyboard Maestro" ] || echo keyboard-maestro >>"$WORK_DIR/needed"
     [ ! -d "$TARGET_PATH/library/Rime" ] || echo squirrel-app >>"$WORK_DIR/needed"
-    [ ! -d "$TARGET_PATH/application-support/Brave-Browser" ] || echo brave-browser >>"$WORK_DIR/needed"
     [ ! -d "$TARGET_PATH/application-backups/TextFlash" ] || echo textflash >>"$WORK_DIR/needed"
     [ ! -f "$TARGET_PATH/home/.zshrc" ] || echo oh-my-zsh >>"$WORK_DIR/needed"
     awk 'FILENAME == ARGV[1] { needed[$0] = 1; next }

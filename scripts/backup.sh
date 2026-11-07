@@ -12,7 +12,6 @@ SAFE_HOST_NAME="$(printf '%s' "$HOST_NAME" | tr -c '[:alnum:]_.-' '-')"
 SNAPSHOT_DIR="$BACKUP_ROOT/$STAMP-$SAFE_HOST_NAME"
 SUMMARY=""
 KEYBOARD_MAESTRO_WAS_RUNNING=0
-BRAVE_WAS_RUNNING=0
 KEYBOARD_MAESTRO_QUIT_ATTEMPTED=0
 
 record_summary() {
@@ -187,18 +186,6 @@ backup_textflash() {
     fi
 }
 
-quit_brave() {
-    if [ "${RESET_KIT_SKIP_QUIT_APPS:-}" = "1" ]; then
-        echo "[info] 跳过退出 Brave Browser（测试模式）"
-        return 0
-    fi
-
-    if /usr/bin/pgrep -f "Brave Browser" &>/dev/null; then
-        /usr/bin/osascript -e 'tell application "Brave Browser" to quit' &>/dev/null || true
-        sleep 2
-    fi
-}
-
 # 备份前会退出 Keyboard Maestro（含 Engine）。macOS Tahoe 起第三方菜单栏
 # NSStatusItem 改由 ControlCenter（StatusKit）统一托管；KM Engine 退出并卸下
 # Status Menu 后，ControlCenter 布局偶发错乱（图标错位/空白）。杀进程让系统
@@ -226,23 +213,11 @@ reopen_backed_up_apps() {
         fi
     fi
 
-    if [ "$BRAVE_WAS_RUNNING" -eq 1 ] &&
-        ! /usr/bin/pgrep -f "Brave Browser" &>/dev/null; then
-        if /usr/bin/open -a "Brave Browser"; then
-            echo "[ok] 已重新打开 Brave Browser"
-        else
-            echo "[warn] 未能重新打开 Brave Browser"
-        fi
-    fi
-
     return 0
 }
 
 if /usr/bin/pgrep -f "[K]eyboard Maestro" &>/dev/null; then
     KEYBOARD_MAESTRO_WAS_RUNNING=1
-fi
-if /usr/bin/pgrep -f "[B]rave Browser" &>/dev/null; then
-    BRAVE_WAS_RUNNING=1
 fi
 
 finish_backup() {
@@ -257,56 +232,6 @@ finish_backup() {
 }
 
 trap finish_backup EXIT
-
-# Brave Sync 可同步书签/扩展列表，但多数插件的本地配置（chrome.storage.local / IndexedDB）不同步。
-backup_brave_extension_configs() {
-    brave_profile="${BRAVE_PROFILE_DIR:-$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default}"
-    local_settings="$brave_profile/Local Extension Settings"
-    indexed_db="$brave_profile/IndexedDB"
-    rel_root="application-support/Brave-Browser/Default"
-
-    if [ ! -d "$brave_profile" ]; then
-        echo "[warn] 跳过，未找到 Brave 配置目录：$brave_profile"
-        record_summary "SKIP" "Brave 插件本地配置" "未找到 Brave 配置目录"
-        return 0
-    fi
-
-    echo "退出 Brave 后备份插件本地配置..."
-    quit_brave
-
-    if [ -d "$local_settings" ]; then
-        dest="$SNAPSHOT_DIR/$rel_root/Local Extension Settings"
-        mkdir -p "$(dirname "$dest")"
-        /usr/bin/rsync -a --exclude '.DS_Store' "$local_settings/" "$dest/"
-        echo "[ok] 已备份：Local Extension Settings"
-        record_summary "DONE" "Brave Local Extension Settings" "$rel_root/Local Extension Settings"
-    else
-        echo "[warn] 跳过，不存在：$local_settings"
-        record_summary "SKIP" "Brave Local Extension Settings" "不存在"
-    fi
-
-    if [ -d "$indexed_db" ]; then
-        dest_idb="$SNAPSHOT_DIR/$rel_root/IndexedDB"
-        mkdir -p "$dest_idb"
-        idb_count=0
-        for entry in "$indexed_db"/chrome-extension_*; do
-            [ -e "$entry" ] || continue
-            /usr/bin/rsync -a --exclude '.DS_Store' "$entry" "$dest_idb/"
-            idb_count=$((idb_count + 1))
-        done
-
-        if [ "$idb_count" -gt 0 ]; then
-            echo "[ok] 已备份：IndexedDB 中 ${idb_count} 个 chrome-extension_* 条目"
-            record_summary "DONE" "Brave 插件 IndexedDB" "$rel_root/IndexedDB（${idb_count} 项）"
-        else
-            echo "[warn] 跳过，IndexedDB 中无 chrome-extension_* 条目"
-            record_summary "SKIP" "Brave 插件 IndexedDB" "无 chrome-extension_* 条目"
-        fi
-    else
-        echo "[warn] 跳过，不存在：$indexed_db"
-        record_summary "SKIP" "Brave 插件 IndexedDB" "不存在"
-    fi
-}
 
 write_restore_script() {
     restore_script="$SNAPSHOT_DIR/restore.sh"
@@ -433,52 +358,6 @@ restore_textflash() {
     fi
 }
 
-restore_brave_extension_configs() {
-    brave_profile="${BRAVE_PROFILE_DIR:-$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default}"
-    rel_root="application-support/Brave-Browser/Default"
-    src_local="$SNAPSHOT_DIR/$rel_root/Local Extension Settings"
-    src_idb="$SNAPSHOT_DIR/$rel_root/IndexedDB"
-
-    if [ ! -d "$src_local" ] && [ ! -d "$src_idb" ]; then
-        echo "[warn] 跳过，快照中不存在 Brave 插件本地配置"
-        record_summary "SKIP" "Brave 插件本地配置" "快照中不存在"
-        return 0
-    fi
-
-    quit_app "Brave Browser"
-    sleep 1
-    mkdir -p "$brave_profile"
-
-    if [ -d "$src_local" ]; then
-        restore_path "Brave Local Extension Settings" \
-            "$rel_root/Local Extension Settings" \
-            "$brave_profile/Local Extension Settings"
-    fi
-
-    if [ -d "$src_idb" ]; then
-        mkdir -p "$brave_profile/IndexedDB"
-        idb_count=0
-        for entry in "$src_idb"/chrome-extension_*; do
-            [ -e "$entry" ] || continue
-            base="$(basename "$entry")"
-            dest="$brave_profile/IndexedDB/$base"
-            if [ -e "$dest" ]; then
-                mv "$dest" "$dest.before-restore-$STAMP"
-            fi
-            /usr/bin/ditto "$entry" "$dest"
-            idb_count=$((idb_count + 1))
-        done
-
-        if [ "$idb_count" -gt 0 ]; then
-            echo "[ok] 已恢复：IndexedDB 中 ${idb_count} 个 chrome-extension_* 条目"
-            record_summary "DONE" "Brave 插件 IndexedDB" "${brave_profile}/IndexedDB（${idb_count} 项）"
-        else
-            echo "[warn] 跳过，快照 IndexedDB 中无 chrome-extension_* 条目"
-            record_summary "SKIP" "Brave 插件 IndexedDB" "快照中无条目"
-        fi
-    fi
-}
-
 if [ "${MAC_AS_CODE_RESTORE_CONFIRMED:-0}" != 1 ]; then
     [ -t 0 ] || { echo "请在交互终端运行 sh restore.sh。" >&2; exit 1; }
     printf '\033[2J\033[H\033[1;36mmac-as-code · 快照恢复\033[0m\n\033[90mmacOS 配置、备份与恢复\033[0m\n\n'
@@ -550,7 +429,6 @@ import_defaults "Keyboard Maestro Engine 偏好" "preferences/com.stairways.keyb
 restore_path "Rime 配置" "library/Rime" "$HOME/Library/Rime"
 
 restore_textflash
-restore_brave_extension_configs
 
 echo
 echo "==> 恢复汇总"
@@ -564,8 +442,7 @@ printf '%s' "$SUMMARY" | while IFS=$'\t' read -r status item detail || [ -n "${s
 done
 
 printf '%s' "$SUMMARY" | awk -F '\t' '$1 == "DONE" { done++ } $1 == "SKIP" { skip++ } END { printf "恢复结束：完成 %d，未恢复 %d；未恢复项目见上方。\n", done, skip }'
-echo "建议重新打开 Ghostty、Brave、CleanShot 和 Keyboard Maestro 检查设置。"
-echo "   Brave：先登录 Sync 拉回扩展列表，再确认各插件本地配置是否已恢复。"
+echo "建议重新打开 Ghostty、CleanShot 和 Keyboard Maestro 检查设置。"
 RESTORE_SCRIPT
 
     chmod +x "$restore_script"
@@ -621,7 +498,6 @@ export_defaults "Keyboard Maestro Engine 偏好" "com.stairways.keyboardmaestro.
 
 copy_rime
 backup_textflash
-backup_brave_extension_configs
 
 echo "生成快照校验文件..."
 (cd "$SNAPSHOT_DIR" && find . -type f \

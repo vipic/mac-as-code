@@ -66,7 +66,6 @@ q 退出
 | CleanShot 偏好 | CleanShot |
 | Keyboard Maestro 应用数据目录 | Keyboard Maestro |
 | Rime 目录 | Squirrel |
-| Brave 插件配置目录 | Brave Browser |
 | TextFlash 备份目录 | TextFlash |
 | `.zshrc` | Oh My Zsh |
 
@@ -79,16 +78,16 @@ cd /外置盘路径/快照目录
 sh restore.sh
 ```
 
-备份范围：SSH、`.gitconfig`（含 Git 用户信息）、`.zshrc`、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash，以及 Brave 插件本地配置。备份与日志含个人信息，不提交到 GitHub。
+备份范围：SSH、`.gitconfig`（含 Git 用户信息）、`.zshrc`、Ghostty、CleanShot、Keyboard Maestro、Rime、TextFlash。备份与日志含个人信息，不提交到 GitHub。
 
 - 快照目录无效、缺少 `restore.sh`、`SHA256SUMS` 缺失或为空、校验失败时不会执行恢复，菜单会要求重新选择。校验只覆盖清单中记录的数据文件；生成快照时不纳入 `restore.sh`、`metadata/` 和符号链接，也不验证后来额外加入的文件。
 - 恢复普通文件 / 目录前会将已有目标移到 `.before-restore-*`，恢复 plist 前会导出现有偏好留存；TextFlash 通过 CLI 导入，脚本没有先导出其当前数据。恢复没有自动回滚。
 - 缺少某项源数据、没有对应偏好、TextFlash CLI 不支持或导入导出失败，均可能显示为「跳过 / 未备份 / 未恢复」。这些情况通常继续后续项目，所以出现结束汇总或退出码 0 不代表所有数据都已迁移。请看每项原因；复制等命令的未处理错误可能提前中止，来不及打印完整汇总。
-- 备份会尝试临时退出 Keyboard Maestro 和 Brave，退出时尝试重新打开备份前就在运行且当前已退出的应用；如果此前运行过 Keyboard Maestro 且尝试退出过它，还会尝试重启 ControlCenter。恢复会尝试退出 CleanShot、Keyboard Maestro，以及有对应待恢复数据的 TextFlash / Brave，不关闭 Ghostty，也不会自动重开这些应用。`RESET_KIT_SKIP_QUIT_APPS=1` 可跳过退出 / 重开，仅供测试使用。
+- 备份会尝试临时退出 Keyboard Maestro，退出时尝试重新打开备份前就在运行且当前已退出的应用；如果此前运行过 Keyboard Maestro 且尝试退出过它，还会尝试重启 ControlCenter。恢复会尝试退出 CleanShot、Keyboard Maestro 和有对应待恢复数据的 TextFlash，不关闭 Ghostty，也不会自动重开这些应用。`RESET_KIT_SKIP_QUIT_APPS=1` 可跳过退出 / 重开，仅供测试使用。
 - Ghostty 固定备份 `~/.config/ghostty/`，排除 `*.bak` 和 `.DS_Store`，不读取自定义 `XDG_CONFIG_HOME`，也不解析并追踪目录外的 `config-file` 引用。不再备份 macOS 专用目录；当前生成的恢复脚本仍兼容快照内的旧版专用目录。字体由 Brewfile 安装。
 - CleanShot / Keyboard Maestro 偏好以 plist 迁移。Keyboard Maestro 只迁移主宏文件、偏好及引用的状态栏图标，不迁移历史、缓存、变量或剪贴板。
 - TextFlash 使用应用 CLI 导入导出片段与配置；不支持 CLI 的旧版本会明确列为未备份或未恢复。
-- Brave 默认只迁移 `Default` profile 的 `Local Extension Settings` 和 `chrome-extension_*` IndexedDB；可用 `BRAVE_PROFILE_DIR` 指定一个其他 profile，不会自动迁移全部 profiles。书签及扩展列表仍需 Brave Sync。
+- Brave 插件本地配置（`Local Extension Settings`、`chrome-extension_*` IndexedDB）不在备份范围，恢复时也不再处理 Brave；书签和扩展列表可依赖 Brave Sync，插件本地设置需在新机重新配置。
 - SSH 备份排除 `agent/` 和 `.DS_Store`；Rime 排除 `build/`、`plum/` 及运行时日志 / 锁文件。恢复阶段还会调整现有 `~/.ssh` 及匹配密钥文件的权限，即使快照缺少 SSH 数据。
 
 统一入口实际执行的是所选快照自带的 `restore.sh`，不会用仓库里的新模板替换它。以上恢复细节描述当前模板；旧快照的行为以其自身脚本为准。当前独立恢复脚本支持 `Enter` / `y` 确认、`q` 即时退出；它是脱离仓库时的恢复入口，没有上一级菜单。
